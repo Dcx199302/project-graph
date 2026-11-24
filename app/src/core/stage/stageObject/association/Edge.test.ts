@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Vector } from "@graphif/data-structures";
 import { deserialize, serialize } from "@graphif/serializer";
 import { decode, encode } from "@msgpack/msgpack";
-import { Rectangle } from "@graphif/shapes";
+import { Rectangle, SymmetryCurve } from "@graphif/shapes";
 
 const setting = vi.hoisted(() => ({ style: (() => {}) as (value: string) => void }));
 vi.mock("@/core/Project", () => ({ Project: class {} }));
@@ -77,7 +77,7 @@ describe("edge geometry cache", () => {
     expect(edge.bodyLine).not.toBe(line);
     line = edge.bodyLine;
     edge.sourceRectangleRate.y = 0.01;
-    expect(edge.bodyLine.start).toEqual(new Vector(90, 0));
+    expect(edge.bodyLine.start).toEqual(new Vector(140, 40));
     expect(edge.bodyLine).not.toBe(line);
     line = edge.bodyLine;
     edge.target = node(300);
@@ -108,6 +108,87 @@ describe("edge geometry cache", () => {
     expect(edge.collisionBox.getRectangle().height).toBe(200);
     Object.setPrototypeOf(source, Section.prototype);
     expect(edge.collisionBox.getRectangle().height).toBe(200);
+  });
+});
+
+describe("automatic sides for ordinary directed edges", () => {
+  it("follows a moved target without changing direction, saved rates or curve hit geometry", () => {
+    const { source, target, edge } = setup();
+    edge.sourceRectangleRate = new Vector(0.99, 0.5);
+    edge.targetRectangleRate = new Vector(0.01, 0.5);
+    const firstBox = edge.collisionBox;
+    const targetRect = target.collisionBox.shapes[0] as Rectangle;
+
+    targetRect.location.x = -300;
+    expect(edge.bodyLine.start).toEqual(new Vector(0, 40));
+    expect(edge.bodyLine.end).toEqual(new Vector(-200, 40));
+    expect(edge.collisionBox).not.toBe(firstBox);
+    const curve = edge.collisionBox.shapes[0] as SymmetryCurve;
+    expect(curve.startDirection).toEqual(new Vector(-1, 0));
+    expect(curve.endDirection).toEqual(new Vector(1, 0));
+
+    targetRect.location.x = 0;
+    targetRect.location.y = -300;
+    expect(edge.bodyLine.start).toEqual(new Vector(50, 0));
+    expect(edge.bodyLine.end).toEqual(new Vector(50, -220));
+    expect(edge.source).toBe(source);
+    expect(edge.target).toBe(target);
+    expect(edge.isLeftToRight()).toBe(true);
+  });
+
+  it("preserves the original axis in diagonal positions and the saved sides while nodes overlap", () => {
+    const { target, edge } = setup();
+    edge.sourceRectangleRate = new Vector(0.5, 0.99);
+    edge.targetRectangleRate = new Vector(0.5, 0.01);
+    const targetRect = target.collisionBox.shapes[0] as Rectangle;
+
+    targetRect.location.y = -180;
+    expect(edge.bodyLine.start).toEqual(new Vector(50, 0));
+    expect(edge.bodyLine.end).toEqual(new Vector(350, -100));
+
+    targetRect.location.x = 20;
+    targetRect.location.y = -20;
+    expect(edge.bodyLine.start).toEqual(new Vector(50, 80));
+    expect(edge.bodyLine.end).toEqual(new Vector(70, -20));
+  });
+
+  it("lets layout edges follow node positions unless their endpoints are manually fixed", () => {
+    const { target, edge } = setup();
+    edge.sourceRectangleRate = new Vector(0.99, 0.5);
+    edge.targetRectangleRate = new Vector(0.01, 0.5);
+    edge.graphLayout = "fishbone";
+    (target.collisionBox.shapes[0] as Rectangle).location.x = -300;
+    const automaticLine = edge.bodyLine;
+    expect(automaticLine.start).toEqual(new Vector(0, 40));
+    expect(automaticLine.end).toEqual(new Vector(-200, 40));
+
+    edge.fixedEndpoints = true;
+    expect(edge.bodyLine).not.toBe(automaticLine);
+    expect(edge.bodyLine.start).toEqual(new Vector(100, 40));
+    expect(edge.bodyLine.end).toEqual(new Vector(-300, 40));
+    const saved = { ...serialize(edge), associationList: [] };
+    expect((deserialize(decode(encode(saved)), {}) as LineEdge).fixedEndpoints).toBe(true);
+
+    edge.fixedEndpoints = undefined;
+    expect(edge.bodyLine.start).toEqual(automaticLine.start);
+    expect(edge.bodyLine.end).toEqual(automaticLine.end);
+    expect(edge.graphLayout).toBe("fishbone");
+  });
+
+  it.each([
+    { sourceRate: new Vector(0.99, 0.5), targetRate: new Vector(0.5, 0.01) },
+    { sourceRate: new Vector(0.99, 0.5), targetRate: new Vector(0.99, 0.5) },
+    { sourceRate: Vector.same(0.5), targetRate: new Vector(0.01, 0.5) },
+  ])("adjusts an edge whose saved sides are mixed, equal or partly centered", ({ sourceRate, targetRate }) => {
+    const { target, edge } = setup();
+    edge.sourceRectangleRate = sourceRate;
+    edge.targetRectangleRate = targetRate;
+    (target.collisionBox.shapes[0] as Rectangle).location.x = -300;
+
+    expect(edge.bodyLine.start).toEqual(new Vector(0, 40));
+    expect(edge.bodyLine.end).toEqual(new Vector(-200, 40));
+    expect(edge.sourceRectangleRate).toEqual(sourceRate);
+    expect(edge.targetRectangleRate).toEqual(targetRate);
   });
 });
 

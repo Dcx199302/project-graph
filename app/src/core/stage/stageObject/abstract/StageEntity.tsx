@@ -104,27 +104,36 @@ export abstract class Entity extends StageObject {
    * 此函数在move函数中被调用，更新
    */
   protected updateOtherEntityLocationByMove() {
-    if (!Settings.isEnableEntityCollision || this.project.sectionMoveDepth > 0) {
-      return;
-    }
+    if (this.project.sectionMoveDepth > 0) return;
 
-    const currentPass = Entity.collisionPasses.get(this.project);
+    const project = this.project;
+    const currentPass = Entity.collisionPasses.get(project);
     if (currentPass) {
       currentPass.pending.push(this);
       return;
     }
+    if (project.deferredMoveCollisions) {
+      project.deferredMoveCollisions.entities.add(this);
+      return;
+    }
+    Entity.resolveMoveCollisions(project, [this]);
+  }
 
-    const pass = { pending: [this], moved: new Set<Entity>([this]) };
-    Entity.collisionPasses.set(this.project, pass);
+  static resolveMoveCollisions(project: Project, sources: Entity[], protectedEntities: Iterable<Entity> = sources) {
+    if (!Settings.isEnableEntityCollision || sources.length === 0) return;
+
+    const pass = { pending: sources, moved: new Set(protectedEntities) };
+    for (const source of sources) pass.moved.add(source);
+    Entity.collisionPasses.set(project, pass);
     try {
-      const entities = this.project.stageManager.getEntities();
+      const entities = project.stageManager.getEntities();
       for (const source of pass.pending) {
         for (const entity of entities) {
           if (!pass.moved.has(entity)) source.collideWithOtherEntity(entity);
         }
       }
     } finally {
-      Entity.collisionPasses.delete(this.project);
+      Entity.collisionPasses.delete(project);
     }
   }
 

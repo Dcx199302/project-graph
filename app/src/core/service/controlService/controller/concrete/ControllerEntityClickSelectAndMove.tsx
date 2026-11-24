@@ -229,22 +229,8 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
         ? this.project.controller.pressingKeySet.has("meta")
         : this.project.controller.pressingKeySet.has("control");
 
-      // 根据模式选择移动方式
-      if (Settings.reverseTreeMoveMode) {
-        // 反转模式：默认树形移动，按住Ctrl键单一移动
-        if (isControlPressed) {
-          this.project.entityMoveManager.moveSelectedEntities(diffLocation);
-        } else {
-          this.project.entityMoveManager.moveEntitiesWithChildren(diffLocation);
-        }
-      } else {
-        // 正常模式：默认单一移动，按住Ctrl键树形移动
-        if (isControlPressed) {
-          this.project.entityMoveManager.moveEntitiesWithChildren(diffLocation);
-        } else {
-          this.project.entityMoveManager.moveSelectedEntities(diffLocation);
-        }
-      }
+      const withChildren = Settings.reverseTreeMoveMode ? !isControlPressed : isControlPressed;
+      this.project.entityMoveManager.dragSelectedEntities(diffLocation, withChildren);
 
       // 预瞄反馈
       if (Settings.enableDragAutoAlign) {
@@ -269,7 +255,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
 
   public mouseup: (event: MouseEvent) => void = (event: MouseEvent) => {
     if (event.button !== this.dragButton) return;
-    if (this.dragTarget && !Settings.viewerMode) this.mousemove(event);
+    if ((this.dragTarget || this.hasMovedEntity) && !Settings.viewerMode) this.mousemove(event);
     this.finishDrag(!Settings.viewerMode);
   };
 
@@ -290,8 +276,10 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
       );
     }
     if (!moved) return;
-    if (snap && Settings.enableDragAutoAlign) this.project.autoAlign.alignAllSelected();
-    if (snap && Settings.enableDragAlignToGrid) this.project.autoAlign.alignAllSelectedToGrid();
+    this.project.entityMoveManager.finishDragging(() => {
+      if (snap && Settings.enableDragAutoAlign) this.project.autoAlign.alignAllSelected();
+      if (snap && Settings.enableDragAlignToGrid) this.project.autoAlign.alignAllSelectedToGrid();
+    });
     this.project.historyManager.recordStep();
   }
 

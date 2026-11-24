@@ -74,7 +74,9 @@ import type { StageSyncAssociationManager } from "@/core/stage/stageManager/conc
 import type { TagManager } from "@/core/stage/stageManager/concreteMethods/StageTagManager";
 import { HistoryManager } from "@/core/stage/stageManager/StageHistoryManager";
 import type { StageManager } from "@/core/stage/stageManager/StageManager";
+import type { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { StageObject } from "@/core/stage/stageObject/abstract/StageObject";
+import type { Section } from "@/core/stage/stageObject/entity/Section";
 import { nextProjectIdAtom, store, tabsAtom } from "@/state";
 import { createDefaultMetadata, PrgMetadata } from "@/types/metadata";
 import { deserialize, serialize } from "@graphif/serializer";
@@ -137,6 +139,7 @@ export class Project extends Tab {
   private readonly projectOwnership = new ProjectOwnershipLifecycle(this);
   public stage: StageObject[] = [];
   public sectionMoveDepth = 0;
+  public deferredMoveCollisions?: { entities: Set<Entity>; sections: Set<Section>; moved: Set<Entity> };
   public tags: string[] = [];
   /**
    * string：UUID

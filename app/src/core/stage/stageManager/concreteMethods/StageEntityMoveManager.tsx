@@ -5,6 +5,7 @@ import { RectanglePushInEffect } from "@/core/service/feedbackService/effectEngi
 import { SoundService } from "@/core/service/feedbackService/SoundService";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
+import { Section } from "@/core/stage/stageObject/entity/Section";
 import { Vector } from "@graphif/data-structures";
 
 /**
@@ -16,6 +17,52 @@ import { Vector } from "@graphif/data-structures";
 @service("entityMoveManager")
 export class EntityMoveManager {
   constructor(private readonly project: Project) {}
+
+  private readonly dragCollisions = {
+    entities: new Set<Entity>(),
+    sections: new Set<Section>(),
+    moved: new Set<Entity>(),
+  };
+
+  private deferDragCollisions(action: () => void) {
+    const previous = this.project.deferredMoveCollisions;
+    this.project.deferredMoveCollisions = this.dragCollisions;
+    try {
+      action();
+    } finally {
+      this.project.deferredMoveCollisions = previous;
+    }
+  }
+
+  dragSelectedEntities(delta: Vector, withChildren: boolean) {
+    this.deferDragCollisions(() => {
+      if (withChildren) this.moveEntitiesWithChildren(delta);
+      else this.moveSelectedEntities(delta);
+    });
+  }
+
+  finishDragging(snap: () => void) {
+    const { moved, entities, sections } = this.dragCollisions;
+    try {
+      this.deferDragCollisions(snap);
+      for (const entity of moved) {
+        if (entity instanceof Section) entity.children.forEach((child) => moved.add(child));
+      }
+      const protectedEntities = new Set(moved);
+      for (const entity of protectedEntities) {
+        if (entity.parentSection) protectedEntities.add(entity.parentSection);
+      }
+      this.deferDragCollisions(() => Entity.resolveMoveCollisions(this.project, [...entities], protectedEntities));
+      const visited = new Set<string>();
+      for (const section of sections) {
+        this.project.sectionCollisionSolver.solveOverlaps(section, visited, protectedEntities);
+      }
+    } finally {
+      moved.clear();
+      entities.clear();
+      sections.clear();
+    }
+  }
 
   // ─────── 持续移动物理引擎（复用 Camera 同款物理模型）───────
   /** 方向命令向量，由快捷键 press/release 写入，值域 [-1,1]×[-1,1] */
@@ -110,6 +157,11 @@ export class EntityMoveManager {
     // 检查实体是否可以被移动（锁定状态检查）
     if (!this.canMoveEntity(entity)) {
       return;
+    }
+    const deferred = this.project.deferredMoveCollisions;
+    if (deferred) {
+      deferred.moved.add(entity);
+      if (entity instanceof Section) deferred.sections.add(entity);
     }
     // 让自己移动
     entity.move(delta);
@@ -220,15 +272,18 @@ export class EntityMoveManager {
    * @param skipDashed 是否跳过虚线边（树形格式化时传 true，避免带动虚线连接的节点）
    */
   moveEntitiesWithChildren(delta: Vector, skipDashed = true) {
+    const nodesToMove = new Set<Entity>();
     for (const node of this.project.stageManager.getEntities()) {
-      if (node.isSelected) {
-        if (node instanceof ConnectableEntity) {
-          this.moveWithChildren(node, delta, skipDashed);
-        } else {
-          this.moveEntityUtils(node, delta);
+      if (!node.isSelected || nodesToMove.has(node)) continue;
+      if (node instanceof ConnectableEntity) {
+        for (const successor of this.project.graphMethods.getSuccessorSet(node, true, skipDashed)) {
+          nodesToMove.add(successor);
         }
+      } else {
+        nodesToMove.add(node);
       }
     }
+    for (const node of nodesToMove) this.moveEntityUtils(node, delta);
   }
   /**
    * 树形移动传入的可连接实体

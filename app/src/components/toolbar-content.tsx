@@ -167,7 +167,7 @@ type ActionRows = readonly (readonly string[])[];
 type OpenCategory = { id: Category; pinned: boolean } | null;
 const CanvasOverlay = createContext<HTMLDivElement | null>(null);
 const cornerShortcutClassName =
-  "bg-popover text-popover-foreground pointer-events-none absolute right-px bottom-px max-w-[calc(100%-2px)] truncate rounded-xs px-0.5 font-mono text-[9px] leading-none";
+  "bg-popover text-popover-foreground pointer-events-none absolute right-px bottom-0.5 max-w-[calc(100%-2px)] truncate rounded-xs px-0.5 font-mono text-[9px]/[12px]";
 
 function isCategoryVisible(id: Category, width: number) {
   return id === "more" || width >= 358 || (width >= 272 && (id === "create" || id === "layout"));

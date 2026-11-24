@@ -1760,9 +1760,9 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "toggleMouseDragMode",
-    defaultKey: "",
+    defaultKey: "h",
     icon: Hand,
-    isContinuous: true,
+    isToggle: true,
     when: (project) =>
       !!project && !Settings.viewerMode && !Settings.isClassroomMode && !project.controller.isMouseDown.some(Boolean),
     onPress: (project) => {

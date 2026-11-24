@@ -55,7 +55,19 @@ export namespace KeyBindsUI {
     userEventQueue.enqueue(event);
   }
 
-  let allUIKeyBinds: UIKeyBind[] = [];
+  // 工具栏热更新后可能拿到新的模块实例，快捷键仍由已经挂载的应用管理。
+  const registry: {
+    bindings: UIKeyBind[];
+    ids: Set<string>;
+    listListeners: Set<(keyBinds: UIKeyBind[]) => void>;
+    bindingListeners: Map<string, Set<(keyBind: UIKeyBind) => void>>;
+  } = import.meta.hot?.data?.keyBindRegistry ?? {
+    bindings: [],
+    ids: new Set(),
+    listListeners: new Set(),
+    bindingListeners: new Map(),
+  };
+  if (import.meta.hot?.data) import.meta.hot.data.keyBindRegistry = registry;
   const inputInterceptors = new Set<KeyBindInputInterceptor>();
 
   export function registerInputInterceptor(interceptor: KeyBindInputInterceptor): () => void {
@@ -87,14 +99,14 @@ export namespace KeyBindsUI {
    * 获取所有已注册的UI快捷键
    */
   export function getAllUIKeyBinds(): UIKeyBind[] {
-    return allUIKeyBinds;
+    return registry.bindings;
   }
 
   /**
    * 获取指定ID的快捷键
    */
   export function getUIKeyBind(id: string): UIKeyBind | undefined {
-    return allUIKeyBinds.find((kb) => kb.id === id);
+    return registry.bindings.find((kb) => kb.id === id);
   }
 
   export async function canExecute(id: string, project = getActiveProject()): Promise<boolean> {
@@ -125,20 +137,17 @@ export namespace KeyBindsUI {
     return true;
   }
 
-  // 快捷键列表变化监听器
-  const keyBindListChangeListeners = new Set<(keyBinds: UIKeyBind[]) => void>();
-
   /**
    * 监听快捷键列表的整体变化（新增或注销快捷键时触发）
    * @param callback 回调函数，接收最新的全量快捷键列表
    * @returns 取消监听的函数
    */
   export function onKeyBindListChange(callback: (keyBinds: UIKeyBind[]) => void): () => void {
-    keyBindListChangeListeners.add(callback);
+    registry.listListeners.add(callback);
     // 立即以当前状态回调一次，确保订阅者拿到最新值（BehaviorSubject 语义）
-    callback([...allUIKeyBinds]);
+    callback([...registry.bindings]);
     return () => {
-      keyBindListChangeListeners.delete(callback);
+      registry.listListeners.delete(callback);
     };
   }
 
@@ -146,8 +155,8 @@ export namespace KeyBindsUI {
    * 通知快捷键列表整体变化
    */
   function notifyKeyBindListChange() {
-    keyBindListChangeListeners.forEach((callback) => {
-      callback([...allUIKeyBinds]);
+    registry.listListeners.forEach((callback) => {
+      callback([...registry.bindings]);
     });
   }
 
@@ -180,9 +189,6 @@ export namespace KeyBindsUI {
     return binds;
   }
 
-  // 快捷键变化监听器
-  const keyBindChangeListeners = new Map<string, Set<(keyBind: UIKeyBind) => void>>();
-
   /**
    * 监听指定快捷键的变化
    * @param id 快捷键ID
@@ -190,10 +196,10 @@ export namespace KeyBindsUI {
    * @returns 取消监听的函数
    */
   export function onKeyBindChange(id: string, callback: (keyBind: UIKeyBind) => void): () => void {
-    if (!keyBindChangeListeners.has(id)) {
-      keyBindChangeListeners.set(id, new Set());
+    if (!registry.bindingListeners.has(id)) {
+      registry.bindingListeners.set(id, new Set());
     }
-    keyBindChangeListeners.get(id)!.add(callback);
+    registry.bindingListeners.get(id)!.add(callback);
 
     // 立即返回当前值
     const currentKeyBind = getUIKeyBind(id);
@@ -202,7 +208,7 @@ export namespace KeyBindsUI {
     }
 
     return () => {
-      keyBindChangeListeners.get(id)?.delete(callback);
+      registry.bindingListeners.get(id)?.delete(callback);
     };
   }
 
@@ -210,15 +216,13 @@ export namespace KeyBindsUI {
    * 通知快捷键变化
    */
   function notifyKeyBindChange(id: string, keyBind: UIKeyBind) {
-    const listeners = keyBindChangeListeners.get(id);
+    const listeners = registry.bindingListeners.get(id);
     if (listeners) {
       listeners.forEach((callback) => {
         callback(keyBind);
       });
     }
   }
-
-  const registerSet = new Set<string>();
 
   /**
    * 注册所有非全局快捷键
@@ -229,9 +233,9 @@ export namespace KeyBindsUI {
     const store = await createStore("keybinds2.json");
     const toolbarPackShortcutMigrated = (await store.get<boolean>("toolbarPackShortcutMigrated")) === true;
     const toolbarGroupShortcutMigrated = (await store.get<boolean>("toolbarGroupShortcutMigrated")) === true;
+    const toolbarDragShortcutMigrated = (await store.get<boolean>("toolbarDragShortcutMigrated")) === true;
     const previousToolbarKeys = new Map([
       ["packEntityToSection", isMac ? "M-g" : "C-g"],
-      ["toggleMouseDragMode", "h"],
       ["createTwinTextNode", "y"],
     ]);
     for (const keybind of allKeyBinds.filter((keybindItem) => !keybindItem.isGlobal)) {
@@ -269,7 +273,8 @@ export namespace KeyBindsUI {
         (keybind.id === "checkoutLeftMouseToDrawing" && key === "b b b") ||
         (keybind.id === "generateNodeTreeWithBroadMode" && key === "\\") ||
         (!toolbarPackShortcutMigrated && previousToolbarKey !== undefined && key === previousToolbarKey) ||
-        (!toolbarGroupShortcutMigrated && keybind.id === "packEntityToSection" && key === "h")
+        (!toolbarGroupShortcutMigrated && keybind.id === "packEntityToSection" && key === "h") ||
+        (!toolbarDragShortcutMigrated && keybind.id === "toggleMouseDragMode" && key === "")
       ) {
         key = keybind.defaultKey;
         await store.set(keybind.id, { key, isEnabled });
@@ -291,6 +296,7 @@ export namespace KeyBindsUI {
     }
     if (!toolbarPackShortcutMigrated) await store.set("toolbarPackShortcutMigrated", true);
     if (!toolbarGroupShortcutMigrated) await store.set("toolbarGroupShortcutMigrated", true);
+    if (!toolbarDragShortcutMigrated) await store.set("toolbarDragShortcutMigrated", true);
     await store.save();
   }
   /**
@@ -324,20 +330,20 @@ export namespace KeyBindsUI {
       isToggle,
       isRepeatable,
     };
-    if (registerSet.has(id)) {
+    if (registry.ids.has(id)) {
       // 检查是否已经是同 ID 的快捷键，如果是，则更新它（用于扩展重新认领逻辑）
-      const index = allUIKeyBinds.findIndex((kb) => kb.id === id);
+      const index = registry.bindings.findIndex((kb) => kb.id === id);
       if (index !== -1) {
-        allUIKeyBinds[index] = keyBind;
-        notifyKeyBindChange(id, allUIKeyBinds[index]);
+        registry.bindings[index] = keyBind;
+        notifyKeyBindChange(id, keyBind);
         notifyKeyBindListChange();
         return;
       }
       console.warn(`Keybind ${id} 已经注册过了`);
       return;
     }
-    registerSet.add(id);
-    allUIKeyBinds.push(keyBind);
+    registry.ids.add(id);
+    registry.bindings.push(keyBind);
 
     // 通知监听器有新的快捷键注册
     notifyKeyBindChange(id, keyBind);
@@ -349,9 +355,8 @@ export namespace KeyBindsUI {
    * 注销一个快捷键
    */
   export function unregisterOneUIKeyBind(id: string) {
-    if (!registerSet.has(id)) return;
-    registerSet.delete(id);
-    allUIKeyBinds = allUIKeyBinds.filter((kb) => kb.id !== id);
+    if (!registry.ids.delete(id)) return;
+    registry.bindings = registry.bindings.filter((kb) => kb.id !== id);
     // 通知快捷键列表整体变化（UI 需要移除对应项）
     notifyKeyBindListChange();
   }
@@ -363,7 +368,7 @@ export namespace KeyBindsUI {
    */
   export async function changeOneUIKeyBind(id: string, key: string) {
     let updatedKeyBind: UIKeyBind | undefined;
-    allUIKeyBinds = allUIKeyBinds.map((it) => {
+    registry.bindings = registry.bindings.map((it) => {
       if (it.id === id) {
         updatedKeyBind = { ...it, key };
         return updatedKeyBind;
@@ -394,7 +399,7 @@ export namespace KeyBindsUI {
   export async function toggleEnabled(id: string): Promise<boolean> {
     let newEnabledState = true;
 
-    allUIKeyBinds = allUIKeyBinds.map((it) => {
+    registry.bindings = registry.bindings.map((it) => {
       if (it.id === id) {
         newEnabledState = !it.isEnabled;
         return { ...it, isEnabled: newEnabledState };
@@ -423,8 +428,8 @@ export namespace KeyBindsUI {
     // 清空存储
     await store.clear();
     // 清空已注册的快捷键
-    registerSet.clear();
-    allUIKeyBinds = [];
+    registry.ids.clear();
+    registry.bindings = [];
     // 重新注册所有快捷键
     await registerAllUIKeyBinds();
   }
@@ -461,7 +466,7 @@ export namespace KeyBindsUI {
     await store.save();
 
     // 更新内存中的快捷键配置
-    for (const uiKeyBind of allUIKeyBinds) {
+    for (const uiKeyBind of registry.bindings) {
       const keybind = allKeyBinds.find((kb) => kb.id === uiKeyBind.id);
       if (keybind) {
         uiKeyBind.isEnabled = keybind.defaultEnabled !== false;
@@ -504,7 +509,7 @@ export namespace KeyBindsUI {
     await store.save();
 
     // 更新内存中的快捷键配置
-    for (const uiKeyBind of allUIKeyBinds) {
+    for (const uiKeyBind of registry.bindings) {
       const keybind = allKeyBinds.find((kb) => kb.id === uiKeyBind.id);
       if (keybind) {
         let defaultValue = keybind.defaultKey;
@@ -590,8 +595,8 @@ export namespace KeyBindsUI {
     const activeProject = tab instanceof Project ? tab : undefined;
 
     // 收集所有匹配的快捷键，按序列长度降序尝试执行，只执行最长匹配
-    const matched: { uiKeyBind: (typeof allUIKeyBinds)[number]; seqLength: number }[] = [];
-    for (const uiKeyBind of allUIKeyBinds) {
+    const matched: { uiKeyBind: UIKeyBind; seqLength: number }[] = [];
+    for (const uiKeyBind of registry.bindings) {
       if (!uiKeyBind.isEnabled) continue;
       if (uiKeyBind.isContinuous) continue;
       if (repeat && (uiKeyBind.isToggle || uiKeyBind.isRepeatable === false)) continue;
@@ -608,7 +613,7 @@ export namespace KeyBindsUI {
       if (maxExecutedLength >= 0 && seqLength < maxExecutedLength) break;
       if (!(await uiKeyBind.when(activeProject))) continue;
       if (uiKeyBind.isToggle) {
-        const nextKeys = allUIKeyBinds
+        const nextKeys = registry.bindings
           .filter((binding) => binding.isEnabled && !binding.isContinuous)
           .flatMap((binding) => {
             const keys = binding.key.trim().split(/\s+/);
@@ -686,7 +691,7 @@ export namespace KeyBindsUI {
       const rawKey = event.key.toLowerCase();
       // 兼容中文输入法下的全角符号（如「【」→「[」）
       const pressedKey = rawKey in transformedKeys ? transformedKeys[rawKey as keyof typeof transformedKeys] : rawKey;
-      for (const uiKeyBind of allUIKeyBinds) {
+      for (const uiKeyBind of registry.bindings) {
         if (!uiKeyBind.isContinuous) continue;
         if (!uiKeyBind.isEnabled) continue;
         // 解析快捷键字符串，同时比对裸键和修饰键
@@ -731,7 +736,7 @@ export namespace KeyBindsUI {
     // 兼容中文输入法下的全角符号（如「】」→「]」）
     const keyUpNormalized =
       rawKeyUp in transformedKeys ? transformedKeys[rawKeyUp as keyof typeof transformedKeys] : rawKeyUp;
-    for (const uiKeyBind of allUIKeyBinds) {
+    for (const uiKeyBind of registry.bindings) {
       if (!uiKeyBind.isContinuous) continue;
       if (!uiKeyBind.isEnabled) continue;
       const parsed = parseSingleEmacsKey(uiKeyBind.key);
@@ -744,7 +749,7 @@ export namespace KeyBindsUI {
 
     // ——序列型快捷键松开——
     // 检查是否有对应的单键快捷键需要处理松开事件
-    for (const uiKeyBind of allUIKeyBinds) {
+    for (const uiKeyBind of registry.bindings) {
       // 如果快捷键未启用，跳过
       if (!uiKeyBind.isEnabled) continue;
       if (uiKeyBind.isContinuous) continue;

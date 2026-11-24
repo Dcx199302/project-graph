@@ -4,6 +4,8 @@ export interface ControllerInputHandlers {
   down(event: PointerEvent): void;
   move(event: PointerEvent): void;
   up(event: PointerEvent): void;
+  /** 单击另有用途时，等确认拖动后才派发按下事件。 */
+  getClickAction(event: PointerEvent): (() => void) | undefined;
   middleClick(event: PointerEvent): boolean;
   doubleClick(event: PointerEvent): void;
   wheel(event: WheelEvent): void;
@@ -17,7 +19,13 @@ export interface ControllerInputHandlers {
 
 /** DOM 输入只在这里归一化，业务控制器接收画布坐标。 */
 export class ControllerInput {
-  private press: { id: number; button: number; location: Vector; dragged: boolean } | null = null;
+  private press: {
+    id: number;
+    button: number;
+    location: Vector;
+    dragged: boolean;
+    deferred?: { event: PointerEvent; click: () => void };
+  } | null = null;
   private lastClick: { button: number; location: Vector; time: number } | null = null;
   private touchMode: "idle" | "single" | "multi" = "idle";
   private location = Vector.getZero();
@@ -53,13 +61,26 @@ export class ControllerInput {
 
   private down(event: PointerEvent) {
     this.location = new Vector(event.clientX, event.clientY);
-    this.press = { id: event.pointerId, button: event.button, location: this.location, dragged: false };
-    this.handlers.down(event);
+    const click = this.handlers.getClickAction(event);
+    this.press = {
+      id: event.pointerId,
+      button: event.button,
+      location: this.location,
+      dragged: false,
+      deferred: click ? { event, click } : undefined,
+    };
+    if (!click) this.handlers.down(event);
   }
 
   private move(event: PointerEvent) {
     this.location = new Vector(event.clientX, event.clientY);
     if (this.press && this.press.location.distance(this.location) > 5) this.press.dragged = true;
+    if (this.press?.deferred) {
+      if (!this.press.dragged) return;
+      const { event } = this.press.deferred;
+      this.press.deferred = undefined;
+      this.handlers.down(event);
+    }
     this.handlers.move(event);
   }
 
@@ -67,12 +88,27 @@ export class ControllerInput {
     const press = this.press;
     this.press = null;
     this.location = new Vector(event.clientX, event.clientY);
+    const isClick =
+      press &&
+      press.button === event.button &&
+      event.buttons === 0 &&
+      !press.dragged &&
+      press.location.distance(this.location) <= 5;
+    if (press?.deferred) {
+      if (isClick) {
+        this.lastClick = null;
+        press.deferred.click();
+        return;
+      }
+      this.handlers.down(press.deferred.event);
+      this.handlers.move(event);
+    }
     this.handlers.up(event);
-    if (!press || press.button !== event.button || press.dragged || press.location.distance(this.location) > 5) {
+    if (!isClick) {
       this.lastClick = null;
       return;
     }
-    if (event.button === 1 && event.buttons === 0 && this.handlers.middleClick(event)) {
+    if (event.button === 1 && this.handlers.middleClick(event)) {
       this.lastClick = null;
       return;
     }

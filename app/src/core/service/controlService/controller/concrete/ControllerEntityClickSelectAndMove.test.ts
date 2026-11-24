@@ -20,12 +20,15 @@ vi.mock("@/utils/platform", () => ({ isMac: false }));
 beforeEach(() => {
   Settings.mouseLeftMode = "selectAndMove";
   Settings.viewerMode = false;
+  Settings.enableDragAlignToGrid = false;
 });
 
 function setup() {
   const node = Object.assign(Object.create(Entity.prototype), { isSelected: false }) as Entity;
   const clicked = vi.fn<() => Entity | null>(() => node);
   const move = vi.fn();
+  const finish = vi.fn((snap: () => void) => snap());
+  const snapToGrid = vi.fn();
   const history = vi.fn();
   const selection = vi.fn();
   const project = {
@@ -49,13 +52,14 @@ function setup() {
       isHaveEntitySelected: () => node.isSelected,
     },
     renderer: { transformView2World: (point: Vector) => point.divide(2) },
-    entityMoveManager: { moveSelectedEntities: move },
+    entityMoveManager: { dragSelectedEntities: move, finishDragging: finish },
+    autoAlign: { alignAllSelectedToGrid: snapToGrid },
     historyManager: { recordStep: history },
   } as unknown as Project;
   const control = new ControllerEntityClickSelectAndMoveClass(project);
   const pointer = (button: number, clientX = 0, pointerType = "mouse") =>
     ({ button, clientX, clientY: 0, pointerType }) as PointerEvent;
-  return { node, clicked, move, history, selection, control, pointer };
+  return { node, clicked, move, finish, snapToGrid, history, selection, control, pointer };
 }
 
 it("selects with the left mouse button without dragging nodes in Select mode", () => {
@@ -73,8 +77,9 @@ it.each([
   [1, "selectAndMove"],
   [0, "drag"],
 ] as const)("drags nodes with button %i in %s mode until release", (button, mode) => {
-  const { control, node, clicked, pointer, move, history } = setup();
+  const { control, node, clicked, pointer, move, finish, snapToGrid, history } = setup();
   Settings.mouseLeftMode = mode;
+  Settings.enableDragAlignToGrid = true;
   expect(control.tryStartDrag(pointer(button))).toBe(true);
   expect(node.isSelected).toBe(false);
   control.mousemove(pointer(button, 3));
@@ -82,25 +87,32 @@ it.each([
   clicked.mockReturnValue(null);
   control.mousemove(pointer(button, 80));
   expect(node.isSelected).toBe(true);
-  expect(move).toHaveBeenCalledExactlyOnceWith(new Vector(40, 0));
+  expect(move).toHaveBeenCalledExactlyOnceWith(new Vector(40, 0), false);
+  expect(finish).not.toHaveBeenCalled();
   control.mouseup(pointer(button, 80));
   control.mousemove(pointer(button, 90));
   expect(move).toHaveBeenCalledOnce();
+  expect(finish).toHaveBeenCalledOnce();
+  expect(snapToGrid).toHaveBeenCalledOnce();
   expect(history).toHaveBeenCalledOnce();
   expect(control.tryStartDrag(pointer(button))).toBe(false);
 });
 
 it("does not move or select on a middle click and clears an active drag on cancel", () => {
-  const { control, node, pointer, move, history, selection } = setup();
+  const { control, node, pointer, move, finish, snapToGrid, history, selection } = setup();
+  Settings.enableDragAlignToGrid = true;
   control.tryStartDrag(pointer(1));
   control.mouseup(pointer(1, 2));
   expect(node.isSelected).toBe(false);
   expect(selection).not.toHaveBeenCalled();
   expect(history).not.toHaveBeenCalled();
+  expect(finish).not.toHaveBeenCalled();
   control.tryStartDrag(pointer(1));
   control.mousemove(pointer(1, 40));
   control.mouseMoveOutWindowForcedShutdown(Vector.getZero());
   control.mousemove(pointer(1, 80));
-  expect(move).toHaveBeenCalledExactlyOnceWith(new Vector(20, 0));
+  expect(move).toHaveBeenCalledExactlyOnceWith(new Vector(20, 0), false);
+  expect(finish).toHaveBeenCalledOnce();
+  expect(snapToGrid).not.toHaveBeenCalled();
   expect(history).toHaveBeenCalledOnce();
 });

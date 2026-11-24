@@ -96,9 +96,9 @@ const twinBinding = {
 };
 const dragBinding = {
   id: "toggleMouseDragMode",
-  defaultKey: "",
+  defaultKey: "h",
   icon: Hand,
-  isContinuous: true,
+  isToggle: true,
   when: () => true,
   onPress: () => {
     Settings.mouseLeftMode = Settings.mouseLeftMode === "drag" ? "selectAndMove" : "drag";
@@ -286,11 +286,11 @@ it("reflects mode changes, applies a saved pen color and preserves selection whe
   expect(container.querySelector('[role="toolbar"]')).toBeNull();
 });
 
-it("toggles the hand tool by click or a customized shortcut", async () => {
+it("shows H and toggles the hand tool once per press or click", async () => {
   await render();
   const hand = button("drag");
   expect(hand.querySelector(".lucide-hand")).not.toBeNull();
-  expect(hand.querySelector("kbd")).toBeNull();
+  expect(hand.querySelector("kbd")?.textContent).toBe("h");
   await act(async () => hand.click());
   expect(hand.getAttribute("aria-pressed")).toBe("true");
   await act(async () => hand.click());
@@ -300,6 +300,14 @@ it("toggles the hand tool by click or a customized shortcut", async () => {
   KeyBindsUI.uiStartListen();
   const key = (type: "keydown" | "keyup", key: string, repeat = false) =>
     act(async () => window.dispatchEvent(new KeyboardEvent(type, { key, repeat })));
+  await key("keydown", "h");
+  expect(hand.getAttribute("aria-pressed")).toBe("true");
+  await key("keydown", "h", true);
+  expect(hand.getAttribute("aria-pressed")).toBe("true");
+  await key("keyup", "h");
+  await key("keydown", "h");
+  expect(button("selectAndMove").getAttribute("aria-pressed")).toBe("true");
+
   await act(async () => KeyBindsUI.changeOneUIKeyBind("toggleMouseDragMode", "j"));
   expect(keyBindStore.set).toHaveBeenCalledWith("toggleMouseDragMode", { key: "j", isEnabled: true });
   expect(hand.querySelector("kbd")?.textContent).toBe("j");
@@ -312,6 +320,23 @@ it("toggles the hand tool by click or a customized shortcut", async () => {
   await key("keyup", "j");
   await key("keydown", "j");
   expect(hand.getAttribute("aria-pressed")).toBe("false");
+});
+
+it("keeps key sequences that contain H", async () => {
+  const white = vi.fn();
+  KeyBindsUI.registerOneUIKeyBind("testWhite", "w h i t e e", true, white);
+  store.set(activeTabAtom, Object.assign(Object.create(Project.prototype), project));
+  KeyBindsUI.uiStartListen();
+  try {
+    for (const key of ["w", "h", "i", "t", "e", "e"]) {
+      await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key })));
+    }
+    await vi.advanceTimersByTimeAsync(250);
+    expect(white).toHaveBeenCalledOnce();
+    expect(Settings.mouseLeftMode).toBe("selectAndMove");
+  } finally {
+    KeyBindsUI.unregisterOneUIKeyBind("testWhite");
+  }
 });
 
 it("shows P on the pen, replaces the old default and keeps custom pen bindings", async () => {
@@ -375,7 +400,10 @@ it("puts Group after the brush and restores Twin Node to Organize with Shift+Y",
   keyBindStore.get.mockImplementation(async (id: keyof typeof saved) => saved[id]);
   await KeyBindsUI.registerAllUIKeyBinds();
   expect(keyBindStore.set).toHaveBeenCalledWith(packBinding.id, { key: "g", isEnabled: true });
+  expect(keyBindStore.set).toHaveBeenCalledWith(dragBinding.id, { key: "h", isEnabled: true });
+  expect(keyBindStore.set).toHaveBeenCalledWith("toolbarDragShortcutMigrated", true);
   await render();
+  expect(button("drag").querySelector("kbd")?.textContent).toBe("h");
 
   const packButton = button("keyBinds:packEntityToSection.title");
   const toolbar = container.querySelector('[role="toolbar"]')!;

@@ -11,7 +11,14 @@ beforeEach(() => {
         super(type, { cancelable: true });
         Object.assign(
           this,
-          { pointerType: "mouse", pointerId: 1, button: 0, buttons: 1, clientX: 20, clientY: 40 },
+          {
+            pointerType: "mouse",
+            pointerId: 1,
+            button: 0,
+            buttons: type === "pointerup" ? 0 : 1,
+            clientX: 20,
+            clientY: 40,
+          },
           init,
         );
       }
@@ -35,6 +42,7 @@ function setup() {
     down: vi.fn(),
     move: vi.fn(),
     up: vi.fn(),
+    getClickAction: vi.fn<(event: PointerEvent) => (() => void) | undefined>(),
     middleClick: vi.fn(() => true),
     doubleClick: vi.fn(),
     wheel: vi.fn(),
@@ -63,6 +71,8 @@ describe("unified canvas input", () => {
     [2, 2, 0, 1],
   ])("keeps the original button %i gesture when another button is pressed", (first, firstMask, second, secondMask) => {
     const { input, pointer, handlers, captures, element } = setup();
+    const click = vi.fn();
+    handlers.getClickAction.mockReturnValueOnce(click);
     pointer("pointerdown", { button: first, buttons: firstMask });
     pointer("pointermove", { button: second, buttons: 3, clientX: 60 });
     expect(handlers.down).toHaveBeenCalledOnce();
@@ -74,6 +84,7 @@ describe("unified canvas input", () => {
     expect(handlers.up).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ button: first }));
     pointer("pointerup", { button: second, buttons: 0 });
     expect(handlers.up).toHaveBeenCalledOnce();
+    expect(click).not.toHaveBeenCalled();
     expect(handlers.doubleClick).not.toHaveBeenCalled();
     expect(captures.size).toBe(0);
 
@@ -170,6 +181,57 @@ describe("unified canvas input", () => {
     pointer("pointermove", { button: -1, buttons: 4, clientX: 80 });
     pointer("pointerup", { button: 1, buttons: 0 });
     expect(handlers.middleClick).toHaveBeenCalledTimes(2);
+    input.dispose();
+  });
+
+  it.each([
+    [0, 1],
+    [2, 2],
+  ])("runs a click action for button %i only after release and preserves consecutive drags", (button, buttons) => {
+    const { input, pointer, handlers } = setup();
+    const click = vi.fn();
+    handlers.getClickAction.mockReturnValue(click);
+
+    for (let i = 0; i < 2; i++) {
+      pointer("pointerdown", { button, buttons });
+      expect(handlers.down).toHaveBeenCalledTimes(i);
+      pointer("pointermove", { button: -1, buttons, clientX: 60 });
+      expect(handlers.down).toHaveBeenLastCalledWith(expect.objectContaining({ button, clientX: 5 }));
+      expect(handlers.move).toHaveBeenLastCalledWith(expect.objectContaining({ clientX: 25 }));
+      pointer("pointerup", { button, clientX: 20 });
+      expect(click).not.toHaveBeenCalled();
+      expect(handlers.up).toHaveBeenCalledTimes(i + 1);
+    }
+
+    pointer("pointerdown", { button, buttons });
+    pointer("pointermove", { button: -1, buttons, clientX: 28 });
+    expect(click).not.toHaveBeenCalled();
+    expect(handlers.move).toHaveBeenCalledTimes(2);
+    pointer("pointerup", { button, clientX: 28 });
+    expect(click).toHaveBeenCalledOnce();
+    expect(handlers.down).toHaveBeenCalledTimes(2);
+    expect(handlers.up).toHaveBeenCalledTimes(2);
+    expect(handlers.doubleClick).not.toHaveBeenCalled();
+    input.dispose();
+  });
+
+  it("keeps a deferred press separate from clicks when release is far away or the press is cancelled", () => {
+    const { input, pointer, handlers } = setup();
+    const click = vi.fn();
+    handlers.getClickAction.mockReturnValue(click);
+    pointer("pointerdown");
+    pointer("pointerup", { clientX: 60 });
+    expect(handlers.down).toHaveBeenCalledOnce();
+    expect(handlers.move).toHaveBeenCalledOnce();
+    expect(handlers.up).toHaveBeenCalledOnce();
+    expect(handlers.move).toHaveBeenCalledAfter(handlers.down);
+    expect(handlers.up).toHaveBeenCalledAfter(handlers.move);
+
+    pointer("pointerdown");
+    pointer("pointercancel");
+    pointer("pointerup");
+    expect(click).not.toHaveBeenCalled();
+    expect(handlers.up).toHaveBeenCalledOnce();
     input.dispose();
   });
 

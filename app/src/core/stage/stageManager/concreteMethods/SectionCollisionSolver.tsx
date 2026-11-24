@@ -23,8 +23,17 @@ export class SectionCollisionSolver {
    *
    * @param grownSection 刚刚增大或移动的 Section
    * @param visited      本次求解链中已处理过的 Section uuid（防止循环）
+   * @param protectedEntities 本次放置中需要保持位置的实体
    */
-  solveOverlaps(grownSection: Section, visited: Set<string> = new Set()): void {
+  solveOverlaps(
+    grownSection: Section,
+    visited: Set<string> = new Set(),
+    protectedEntities?: ReadonlySet<Entity>,
+  ): void {
+    if (this.project.deferredMoveCollisions) {
+      this.project.deferredMoveCollisions.sections.add(grownSection);
+      return;
+    }
     if (!Settings.isEnableSectionCollision) return;
     if (visited.has(grownSection.uuid)) return;
     visited.add(grownSection.uuid);
@@ -34,7 +43,7 @@ export class SectionCollisionSolver {
 
     for (const sibling of siblings) {
       // 跳过被锁定的同级 Section（无法安全地原地修改其位置数据）
-      if (sibling.locked) continue;
+      if (sibling.locked || protectedEntities?.has(sibling)) continue;
       if (visited.has(sibling.uuid)) continue;
 
       const siblingRect = sibling.collisionBox.getRectangle();
@@ -47,7 +56,7 @@ export class SectionCollisionSolver {
       this.rawShiftEntityTree(sibling, delta);
 
       // 向上更新包围盒，并在每一层继续检测新的同级碰撞
-      this.updateAncestorsAfterShift(sibling, visited);
+      this.updateAncestorsAfterShift(sibling, visited, protectedEntities);
     }
   }
 
@@ -59,12 +68,16 @@ export class SectionCollisionSolver {
    * 在 sibling 被推移后，沿父级链向上依次 adjustLocationAndSize，
    * 并对每个扩大的父框再次检测同级碰撞（递归向上传播）。
    */
-  private updateAncestorsAfterShift(entity: Entity, visited: Set<string>): void {
+  private updateAncestorsAfterShift(
+    entity: Entity,
+    visited: Set<string>,
+    protectedEntities?: ReadonlySet<Entity>,
+  ): void {
     let current = entity.parentSection;
     while (current) {
       current.adjustLocationAndSize();
       // 父框扩大后可能与其自身的同级 Section 碰撞，继续向上求解
-      this.solveOverlaps(current, visited);
+      this.solveOverlaps(current, visited, protectedEntities);
       current = current.parentSection;
     }
   }

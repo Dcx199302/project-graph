@@ -169,6 +169,18 @@ export class Controller {
         if (this.pointerController) this.pointerController.mouseup(event);
         else this.dispatch((c) => c.mouseup(event));
       },
+      getClickAction: (event) => {
+        if (
+          Settings.mouseLeftMode === "drag" &&
+          !Settings.viewerMode &&
+          event.pointerType === "mouse" &&
+          (event.button === 0 || event.button === 2)
+        ) {
+          return () => {
+            if (Settings.mouseLeftMode === "drag") Settings.mouseLeftMode = "selectAndMove";
+          };
+        }
+      },
       middleClick: (event) => !event.ctrlKey && this.camera.toggleMouseDragMode(),
       doubleClick: (event) => {
         if (event.button === 1 || this.pointerController === this.camera) this.camera.mouseDoubleClick(event);

@@ -232,8 +232,10 @@ export class StageManager {
     // A→B 和 B→A 端点位置相同时归入同一几何组，统一分配 shiftingIndex
     const rateKey = (v: Vector): string => `${v.x.toFixed(2)},${v.y.toFixed(2)}`;
     const geoGroups = new Map<string, LineEdge[]>();
+    const firstEdgeByPair = new Map<string, LineEdge>();
 
     for (const edge of this.getLineEdges()) {
+      edge.hasParallelLineEdge = false;
       if (edge.source.uuid === edge.target.uuid) {
         // 自环跳过，不参与几何组，shiftingIndex 保持 0
         edge.shiftingIndex = 0;
@@ -241,12 +243,20 @@ export class StageManager {
       }
       const idA = edge.source.uuid;
       const idB = edge.target.uuid;
+      const pair = idA <= idB ? `${idA}|${idB}` : `${idB}|${idA}`;
+      const firstEdge = firstEdgeByPair.get(pair);
+      if (firstEdge) {
+        firstEdge.hasParallelLineEdge = true;
+        edge.hasParallelLineEdge = true;
+      } else {
+        firstEdgeByPair.set(pair, edge);
+      }
       let key: string;
       if (idA <= idB) {
-        key = `${idA}|${idB}|${rateKey(edge.sourceRectangleRate)}|${rateKey(edge.targetRectangleRate)}`;
+        key = `${pair}|${rateKey(edge.sourceRectangleRate)}|${rateKey(edge.targetRectangleRate)}`;
       } else {
         // B→A 方向：交换端点对应关系，使 A→B 与 B→A 落入同一几何组
-        key = `${idB}|${idA}|${rateKey(edge.targetRectangleRate)}|${rateKey(edge.sourceRectangleRate)}`;
+        key = `${pair}|${rateKey(edge.targetRectangleRate)}|${rateKey(edge.sourceRectangleRate)}`;
       }
       if (!geoGroups.has(key)) geoGroups.set(key, []);
       geoGroups.get(key)!.push(edge);
@@ -1002,7 +1012,7 @@ export class StageManager {
    * @param direction
    * @param isSource
    */
-  changeEdgesConnectLocation(edges: Edge[], direction: Direction | null, isSource: boolean = false) {
+  changeEdgesConnectLocation(edges: Edge[], direction: Direction | null, isSource = false, fixEndpoints = true) {
     const newLocationRate = new Vector(0.5, 0.5);
     if (direction === Direction.Left) {
       newLocationRate.x = 0.01;
@@ -1019,6 +1029,10 @@ export class StageManager {
         edge.sourceRectangleRate = newLocationRate;
       } else {
         edge.targetRectangleRate = newLocationRate;
+      }
+      if (edge instanceof LineEdge) {
+        if (direction !== null && fixEndpoints) edge.fixedEndpoints = true;
+        else if (edge.isUnknownDirection()) edge.fixedEndpoints = undefined;
       }
     }
     // 播放连线调整音效

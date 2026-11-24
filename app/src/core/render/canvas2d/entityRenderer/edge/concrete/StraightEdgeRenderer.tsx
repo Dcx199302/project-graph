@@ -138,13 +138,14 @@ export class StraightEdgeRenderer extends EdgeRendererClass {
     const edgeColor = edge.color.equals(Color.Transparent)
       ? this.project.stageStyleManager.currentStyle.StageObjectBorder
       : edge.color;
-    const lineBody = SvgUtils.line(edge.bodyLine.start, edge.bodyLine.end, edgeColor, 2);
+    const line = edge.bodyLine;
+    const lineBody = SvgUtils.line(line.start, line.end, edgeColor, 2);
 
     let textNode: React.ReactNode = <></>;
     if (edge.text.trim() !== "") {
       textNode = SvgUtils.textFromCenterWithStroke(
         edge.text,
-        edge.bodyLine.midPoint(),
+        line.midPoint(),
         edge.textFontSize,
         edgeColor,
         this.project.stageStyleManager.currentStyle.Background,
@@ -152,16 +153,7 @@ export class StraightEdgeRenderer extends EdgeRendererClass {
     }
     // 加箭头
     const arrowHead = this.shouldRenderTargetArrow(edge)
-      ? this.project.edgeRenderer.generateArrowHeadSvg(
-          edge.bodyLine.end.clone(),
-          edge.target.collisionBox
-            .getRectangle()
-            .getCenter()
-            .subtract(edge.source.collisionBox.getRectangle().getCenter())
-            .normalize(),
-          15,
-          edgeColor,
-        )
+      ? this.project.edgeRenderer.generateArrowHeadSvg(line.end.clone(), line.direction().normalize(), 15, edgeColor)
       : null;
     return (
       <>

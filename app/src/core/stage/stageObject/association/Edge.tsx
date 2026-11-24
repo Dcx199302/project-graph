@@ -49,10 +49,17 @@ export abstract class Edge extends ConnectableAssociation {
     target: ConnectableEntity;
     sourceRectangle: Rectangle;
     targetRectangle: Rectangle;
+    savedSourceRate: Vector;
+    savedTargetRate: Vector;
+    adjustSides: boolean;
     sourceRate: Vector;
     targetRate: Vector;
     line: Line;
   };
+
+  protected get adjustBodyLineSides(): boolean {
+    return false;
+  }
 
   /**
    * 获取两个实体之间的直线
@@ -60,8 +67,13 @@ export abstract class Edge extends ConnectableAssociation {
    * 但对于图片节点，如果rate是精确值（不是旧的默认值），则直接使用内部位置
    */
   get bodyLine(): Line {
+    return this.bodyLineGeometry.line;
+  }
+
+  get bodyLineGeometry(): { line: Line; sourceRate: Vector; targetRate: Vector } {
     const sourceRectangle = this.source.collisionBox.getRectangle();
     const targetRectangle = this.target.collisionBox.getRectangle();
+    const adjustSides = this.adjustBodyLineSides;
 
     const cached = this.bodyLineCache;
     if (
@@ -72,24 +84,46 @@ export abstract class Edge extends ConnectableAssociation {
       cached.sourceRectangle.size.equals(sourceRectangle.size) &&
       cached.targetRectangle.location.equals(targetRectangle.location) &&
       cached.targetRectangle.size.equals(targetRectangle.size) &&
-      cached.sourceRate.equals(this.sourceRectangleRate) &&
-      cached.targetRate.equals(this.targetRectangleRate)
+      cached.savedSourceRate.equals(this.sourceRectangleRate) &&
+      cached.savedTargetRate.equals(this.targetRectangleRate) &&
+      cached.adjustSides === adjustSides
     )
-      return cached.line;
+      return cached;
 
-    const sourceInner = sourceRectangle.getInnerLocationByRateVector(this.sourceRectangleRate);
-    const targetInner = targetRectangle.getInnerLocationByRateVector(this.targetRectangleRate);
+    let sourceRate = this.sourceRectangleRate.clone();
+    let targetRate = this.targetRectangleRate.clone();
+    const isCenterRate = (rate: Vector): boolean => rate.x === 0.5 && rate.y === 0.5;
+    if (adjustSides) {
+      const horizontal =
+        Number(targetRectangle.left > sourceRectangle.right) - Number(sourceRectangle.left > targetRectangle.right);
+      const vertical =
+        Number(targetRectangle.top > sourceRectangle.bottom) - Number(sourceRectangle.top > targetRectangle.bottom);
+      const facesNeighbor = (rate: Vector, x: number, y: number) =>
+        isCenterRate(rate) || (rate.x - 0.5) * x + (rate.y - 0.5) * y > 0;
+      if (!facesNeighbor(sourceRate, horizontal, vertical) || !facesNeighbor(targetRate, -horizontal, -vertical)) {
+        // 两轴均有空隙时优先沿用原端点的轴，避免斜拖时来回换边。
+        const preferredRate = isCenterRate(sourceRate) ? targetRate : sourceRate;
+        if (horizontal !== 0 && (preferredRate.y === 0.5 || vertical === 0)) {
+          sourceRate = new Vector(horizontal > 0 ? 0.99 : 0.01, 0.5);
+          targetRate = new Vector(horizontal > 0 ? 0.01 : 0.99, 0.5);
+        } else if (vertical !== 0) {
+          sourceRate = new Vector(0.5, vertical > 0 ? 0.99 : 0.01);
+          targetRate = new Vector(0.5, vertical > 0 ? 0.01 : 0.99);
+        }
+      }
+    }
+
+    const sourceInner = sourceRectangle.getInnerLocationByRateVector(sourceRate);
+    const targetInner = targetRectangle.getInnerLocationByRateVector(targetRate);
     const edgeCenterLine = new Line(sourceInner, targetInner);
     let startPoint: Vector;
     let endPoint: Vector;
 
-    const isCenterRate = (rate: Vector): boolean => rate.x === 0.5 && rate.y === 0.5;
-
     if (this.source instanceof ConnectPoint) {
       startPoint = this.source.geometryCenter;
-    } else if (!isCenterRate(this.sourceRectangleRate)) {
+    } else if (!isCenterRate(sourceRate)) {
       startPoint =
-        Edge.getExactEdgePositionByRate(sourceRectangle, this.sourceRectangleRate) ??
+        Edge.getExactEdgePositionByRate(sourceRectangle, sourceRate) ??
         (this.source.clipConnectionToBoundary ? sourceRectangle.getLineIntersectionPoint(edgeCenterLine) : sourceInner);
     } else {
       // Center rate: clip to the bounding rectangle edge along the connection direction
@@ -97,9 +131,9 @@ export abstract class Edge extends ConnectableAssociation {
     }
     if (this.target instanceof ConnectPoint) {
       endPoint = this.target.geometryCenter;
-    } else if (!isCenterRate(this.targetRectangleRate)) {
+    } else if (!isCenterRate(targetRate)) {
       endPoint =
-        Edge.getExactEdgePositionByRate(targetRectangle, this.targetRectangleRate) ??
+        Edge.getExactEdgePositionByRate(targetRectangle, targetRate) ??
         (this.target.clipConnectionToBoundary ? targetRectangle.getLineIntersectionPoint(edgeCenterLine) : targetInner);
     } else {
       // Center rate: clip to the bounding rectangle edge along the connection direction
@@ -111,11 +145,14 @@ export abstract class Edge extends ConnectableAssociation {
       target: this.target,
       sourceRectangle: sourceRectangle.clone(),
       targetRectangle: targetRectangle.clone(),
-      sourceRate: this.sourceRectangleRate.clone(),
-      targetRate: this.targetRectangleRate.clone(),
+      savedSourceRate: this.sourceRectangleRate.clone(),
+      savedTargetRate: this.targetRectangleRate.clone(),
+      adjustSides,
+      sourceRate,
+      targetRate,
       line,
     };
-    return line;
+    return this.bodyLineCache;
   }
 
   /**

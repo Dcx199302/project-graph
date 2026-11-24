@@ -1,5 +1,6 @@
 import { Project } from "@/core/Project";
 import { Renderer } from "@/core/render/canvas2d/renderer";
+import { Settings } from "@/core/service/Settings";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Edge, type PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { EdgeCollisionBoxGetter } from "@/core/stage/stageObject/association/EdgeCollisionBoxGetter";
@@ -24,6 +25,9 @@ export class LineEdge extends Edge {
   public lineType: string = "solid";
   @serializable
   public arrowType: string = "default";
+  @serializable
+  public fixedEndpoints?: true;
+  public hasParallelLineEdge = false;
 
   get collisionBox(): CollisionBox {
     return EdgeCollisionBoxGetter.getCollisionBox(this);
@@ -43,6 +47,23 @@ export class LineEdge extends Edge {
   }
   private _shiftingIndex: number = 0;
 
+  protected override get adjustBodyLineSides(): boolean {
+    if (
+      this.fixedEndpoints ||
+      this.hasParallelLineEdge ||
+      Settings.lineStyle === "vertical" ||
+      this.source === this.target ||
+      this.isUnknownDirection() ||
+      !this.source.clipConnectionToBoundary ||
+      !this.target.clipConnectionToBoundary
+    ) {
+      return false;
+    }
+    const isCenterOrSide = ({ x, y }: Vector) =>
+      (x === 0.5 && (y === 0.01 || y === 0.5 || y === 0.99)) || (y === 0.5 && (x === 0.01 || x === 0.99));
+    return isCenterOrSide(this.sourceRectangleRate) && isCenterOrSide(this.targetRectangleRate);
+  }
+
   constructor(
     protected readonly project: Project,
     {
@@ -54,6 +75,7 @@ export class LineEdge extends Edge {
       targetRectangleRate = Vector.same(0.5),
       lineType = "solid",
       arrowType = "default",
+      fixedEndpoints = undefined as true | undefined,
       graphLayout = undefined as PreservedGraphLayout | undefined,
       fishboneLayout = undefined as boolean | undefined,
     },
@@ -69,6 +91,7 @@ export class LineEdge extends Edge {
     this.targetRectangleRate = targetRectangleRate;
     this.lineType = lineType;
     this.arrowType = arrowType;
+    this.fixedEndpoints = fixedEndpoints === true ? true : undefined;
     this.graphLayout = graphLayout ?? (fishboneLayout === true ? "fishbone" : undefined);
 
     this.adjustSizeByText();

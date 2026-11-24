@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 
@@ -15,7 +15,9 @@ vi.mock("@/core/render/canvas2d/renderer", () => ({
 }));
 vi.mock("@/core/service/Settings", () => ({ Settings: { watch: vi.fn(), historySize: 100 } }));
 vi.mock("@/core/service/Telemetry", () => ({ Telemetry: {} }));
-vi.mock("@/core/service/feedbackService/SoundService", () => ({ SoundService: {} }));
+vi.mock("@/core/service/feedbackService/SoundService", () => ({
+  SoundService: { play: { associationAdjustSoundFile: vi.fn() } },
+}));
 vi.mock("@/core/stage/stageObject/entity/ReferenceBlockNode", () => ({ ReferenceBlockNode: class {} }));
 vi.mock("@/utils/font", () => ({
   getMultiLineTextSize: (text: string) => new Vector(Math.max(20, text.length * 10), text.split("\n").length * 20),
@@ -37,6 +39,7 @@ import type { Project } from "@/core/Project";
 import { LayoutManager } from "./concreteMethods/LayoutManager";
 import { NodeAdder } from "./concreteMethods/StageNodeAdder";
 import { DeleteManager } from "./concreteMethods/StageDeleteManager";
+import { EntityMoveManager } from "./concreteMethods/StageEntityMoveManager";
 import { SectionInOutManager } from "./concreteMethods/StageSectionInOutManager";
 import { SectionPackManager } from "./concreteMethods/StageSectionPackManager";
 import { Direction } from "@/types/directions";
@@ -46,6 +49,8 @@ import { SectionMethods } from "./basicMethods/SectionMethods";
 import { GraphMethods } from "./basicMethods/GraphMethods";
 import { ConnectNodeSmartTools } from "@/core/service/dataManageService/connectNodeSmartTools";
 import { ArcEdge } from "@/core/stage/stageObject/association/ArcEdge";
+import { Settings } from "@/core/service/Settings";
+import { SectionCollisionSolver } from "./concreteMethods/SectionCollisionSolver";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -316,8 +321,9 @@ it("ungroups a collapsed nested section without deleting its nodes or their conn
 function createProjectWithHistory() {
   const project = {
     stage: [],
+    sectionMoveDepth: 0,
     emit: vi.fn(),
-    effects: { addEffect: vi.fn(), addEffects: vi.fn() },
+    effects: { addEffect: vi.fn(), addEffects: vi.fn(), addMoveShadow: vi.fn() },
     edgeRenderer: { getCuttingEffects: () => [] },
     syncAssociationManager: { onStageObjectDeleted: vi.fn() },
     stageUtils: { replaceAutoNameTemplate: () => "New group" },
@@ -329,8 +335,160 @@ function createProjectWithHistory() {
   project.sectionMethods = new SectionMethods(project);
   project.sectionInOutManager = new SectionInOutManager(project);
   project.sectionPackManager = new SectionPackManager(project);
+  project.sectionCollisionSolver = new SectionCollisionSolver(project);
   return project;
 }
+
+describe("moving connected nodes", () => {
+  function chain() {
+    const project = createProjectWithHistory();
+    const [a, b, c] = ["a", "b", "c"].map((text, index) => {
+      const node = new TextNode(project, { text });
+      node.moveTo(new Vector(300 * index, 0));
+      return node;
+    });
+    const ab = lineEdge([a, b]);
+    const bc = lineEdge([b, c]);
+    project.stage.push(a, b, c, ab, bc);
+    project.stageManager.updateReferences();
+    for (const edge of [ab, bc]) {
+      project.stageManager.changeEdgesConnectLocation([edge], Direction.Right, true, false);
+      project.stageManager.changeEdgesConnectLocation([edge], Direction.Left, false, false);
+      edge.graphLayout = "mindMap";
+    }
+    return { a, b, c, ab, bc, mover: new EntityMoveManager(project) };
+  }
+
+  it("flips the last edge of a chain when only its target moves across its source", () => {
+    const { b, c, ab, bc, mover } = chain();
+    bc.targetRectangleRate = new Vector(0.5, 0.01);
+    const untouched = ab.bodyLine;
+    c.isSelected = true;
+    mover.moveSelectedEntities(new Vector(-450, 0));
+
+    expect(ab.bodyLine).toBe(untouched);
+    expect(bc.bodyLine.start).toEqual(b.rectangle.leftCenter);
+    expect(bc.bodyLine.end).toEqual(c.rectangle.rightCenter);
+    expect(bc.target).toBe(c);
+    expect(bc.targetRectangleRate).toEqual(new Vector(0.5, 0.01));
+  });
+
+  it.each(["regular", "tree"] as const)(
+    "moves selected nodes together in %s mode and flips only the edge crossing the selection",
+    (mode) => {
+      const { a, b, c, ab, bc, mover } = chain();
+      const delta = new Vector(-500, 0);
+      const previous = bc.bodyLine;
+      b.isSelected = c.isSelected = true;
+      if (mode === "tree") mover.moveEntitiesWithChildren(delta);
+      else mover.moveSelectedEntities(delta);
+
+      expect(ab.bodyLine.start).toEqual(a.rectangle.leftCenter);
+      expect(ab.bodyLine.end).toEqual(b.rectangle.rightCenter);
+      expect(bc.bodyLine.start).toEqual(previous.start.add(delta));
+      expect(bc.bodyLine.end).toEqual(previous.end.add(delta));
+    },
+  );
+});
+
+describe("drag collision timing", () => {
+  const initialEntityCollision = Settings.isEnableEntityCollision;
+  const initialSectionCollision = Settings.isEnableSectionCollision;
+  beforeEach(() => {
+    Settings.isEnableEntityCollision = true;
+    Settings.isEnableSectionCollision = false;
+  });
+  afterEach(() => {
+    Settings.isEnableEntityCollision = initialEntityCollision;
+    Settings.isEnableSectionCollision = initialSectionCollision;
+  });
+
+  function setupNodes(...locations: [number, number][]) {
+    const project = createProjectWithHistory();
+    const nodes = locations.map(([x, y]) => {
+      const node = new TextNode(project, { text: "node" });
+      node.moveTo(new Vector(x, y));
+      return node;
+    });
+    project.stage.push(...nodes);
+    return { project, nodes, mover: new EntityMoveManager(project) };
+  }
+
+  it.each(["single", "multi", "tree"] as const)(
+    "leaves nodes along the drag path in place and resolves the drop in %s mode",
+    (mode) => {
+      const { project, nodes, mover } = setupNodes([0, 0], [0, 160], [120, 0], [260, mode === "single" ? 0 : 160]);
+      const [first, second, alongPath, atDrop] = nodes;
+      first.isSelected = true;
+      if (mode === "multi") second.isSelected = true;
+      if (mode === "tree") project.stage.push(lineEdge([first, second]));
+      const draggedAtDrop = mode === "single" ? first : second;
+      const originalPathLocation = alongPath.rectangle.location;
+      const originalDropLocation = atDrop.rectangle.location;
+
+      mover.dragSelectedEntities(new Vector(120, 0), mode === "tree");
+      expect(first.rectangle.isCollideWith(alongPath.rectangle)).toBe(true);
+      expect(alongPath.rectangle.location).toEqual(originalPathLocation);
+      mover.dragSelectedEntities(new Vector(120, 0), mode === "tree");
+      expect(draggedAtDrop.rectangle.isCollideWith(atDrop.rectangle)).toBe(true);
+      expect(atDrop.rectangle.location).toEqual(originalDropLocation);
+      mover.finishDragging(() => {});
+
+      expect(first.rectangle.location).toEqual(new Vector(240, 0));
+      expect(draggedAtDrop.rectangle.left).toBe(240);
+      expect(alongPath.rectangle.location).toEqual(originalPathLocation);
+      expect(atDrop.rectangle.location).not.toEqual(originalDropLocation);
+      expect(draggedAtDrop.rectangle.isCollideWith(atDrop.rectangle)).toBe(false);
+      expect(project.deferredMoveCollisions).toBeUndefined();
+    },
+  );
+
+  it("checks for collisions after snapping and respects the collision setting", () => {
+    const { nodes, mover } = setupNodes([0, 0], [260, 0], [520, 0]);
+    const [dragged, first, second] = nodes;
+    dragged.isSelected = true;
+    mover.dragSelectedEntities(new Vector(190, 0), false);
+    expect(dragged.rectangle.isCollideWith(first.rectangle)).toBe(false);
+    mover.finishDragging(() => {
+      dragged.move(new Vector(50, 0));
+      expect(dragged.rectangle.isCollideWith(first.rectangle)).toBe(true);
+      expect(first.rectangle.location).toEqual(new Vector(260, 0));
+    });
+    expect(dragged.rectangle.isCollideWith(first.rectangle)).toBe(false);
+    expect(first.rectangle.location).not.toEqual(new Vector(260, 0));
+
+    Settings.isEnableEntityCollision = false;
+    mover.dragSelectedEntities(new Vector(260, 0), false);
+    mover.finishDragging(() => {});
+    expect(dragged.rectangle.isCollideWith(second.rectangle)).toBe(true);
+    expect(second.rectangle.left).toBe(520);
+  });
+
+  it.each(["section", "child"] as const)("defers sibling section collisions when dragging a %s", (target) => {
+    Settings.isEnableEntityCollision = false;
+    Settings.isEnableSectionCollision = true;
+    const { project, nodes, mover } = setupNodes([0, 0], [140, 0], [350, 0]);
+    const [dragged, alongPath, atDrop] = nodes;
+    const [parent, pathSection, dropSection] = nodes.map((node) => new Section(project, { children: [node] }));
+    project.stage.push(parent, pathSection, dropSection);
+    project.stageManager.updateReferences();
+    const selected = target === "section" ? parent : dragged;
+    selected.isSelected = true;
+
+    mover.dragSelectedEntities(new Vector(140, 0), false);
+    expect(parent.rectangle.isCollideWith(pathSection.rectangle)).toBe(true);
+    expect(alongPath.rectangle.left).toBe(140);
+    mover.dragSelectedEntities(new Vector(180, 0), false);
+    expect(parent.rectangle.isCollideWith(dropSection.rectangle)).toBe(true);
+    expect(atDrop.rectangle.left).toBe(350);
+    mover.finishDragging(() => {});
+
+    expect(dragged.rectangle.left).toBe(320);
+    expect(alongPath.rectangle.left).toBe(140);
+    expect(atDrop.rectangle.left).toBeGreaterThan(350);
+    expect(parent.rectangle.isCollideWith(dropSection.rectangle)).toBe(false);
+  });
+});
 
 it("undoes and redoes a batch of new connections and a batch of edge conversions independently", () => {
   const project = createProjectWithHistory();
@@ -494,6 +652,44 @@ describe("StageManager.updateReferences", () => {
 
     expect([first.shiftingIndex, second.shiftingIndex].sort()).toEqual([-1, 1]);
     expect(selfLoop.shiftingIndex).toBe(0);
+  });
+
+  it("preserves distinct ports for parallel edges and resumes automatic sides when only one remains", () => {
+    const source = textNode("a");
+    const target = textNode("b", -300);
+    const first = lineEdge([source, target]);
+    first.sourceRectangleRate = new Vector(0.99, 0.5);
+    first.targetRectangleRate = new Vector(0.01, 0.5);
+    const second = lineEdge([target, source]);
+    const stage = [source, target, first, second];
+    const manager = createStageManager(stage);
+
+    manager.updateReferences();
+    expect(first.shiftingIndex).toBe(0);
+    expect(first.bodyLine.start).toEqual(new Vector(100, 40));
+    expect(second.bodyLine.end).toEqual(new Vector(0, 40));
+
+    stage.pop();
+    manager.updateReferences();
+    expect(first.bodyLine.start).toEqual(new Vector(0, 40));
+  });
+
+  it("pins manually chosen sides and restores automatic anchoring when both are reset", () => {
+    const source = textNode("a");
+    const target = textNode("b", -300);
+    const edge = lineEdge([source, target]);
+    const manager = createStageManager([source, target, edge]);
+
+    manager.changeEdgesConnectLocation([edge], Direction.Right, true);
+    manager.changeEdgesConnectLocation([edge], Direction.Left);
+    expect(edge.bodyLine.start).toEqual(new Vector(100, 40));
+    expect(edge.bodyLine.end).toEqual(new Vector(-300, 40));
+
+    manager.changeEdgesConnectLocation([edge], null, true);
+    manager.changeEdgesConnectLocation([edge], null);
+    expect(edge.fixedEndpoints).toBeUndefined();
+    expect(edge.bodyLine.start).toEqual(new Vector(0, 40));
+    expect(edge.bodyLine.end).toEqual(new Vector(-200, 40));
   });
 
   it("scans the association list once regardless of entity count", () => {

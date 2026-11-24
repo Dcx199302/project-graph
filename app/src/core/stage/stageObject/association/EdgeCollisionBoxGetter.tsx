@@ -114,14 +114,13 @@ export namespace EdgeCollisionBoxGetter {
       curve.end = curve.end.subtract(curve.endDirection.normalize().multiply(size / -2));
       return new CollisionBox([curve]);
     } else {
-      const bodyLine = edge.bodyLine;
-      const start = bodyLine.start;
-      const end = bodyLine.end;
+      const { line, sourceRate, targetRate } = edge.bodyLineGeometry;
+      const { start, end } = line;
       const lineDirection = end.subtract(start).normalize();
 
       const startDirection = (() => {
         if (edge.source instanceof ConnectPoint) return Vector.getZero();
-        const fromRate = Edge.getNormalVectorByRate(edge.sourceRectangleRate);
+        const fromRate = Edge.getNormalVectorByRate(sourceRate);
         if (fromRate !== null) return fromRate;
         const sourceRect = edge.source.collisionBox.getRectangle();
         const isExact =
@@ -135,7 +134,7 @@ export namespace EdgeCollisionBoxGetter {
 
       const endDirection = (() => {
         if (edge.target instanceof ConnectPoint) return Vector.getZero();
-        const toRate = Edge.getNormalVectorByRate(edge.targetRectangleRate);
+        const toRate = Edge.getNormalVectorByRate(targetRate);
         if (toRate !== null) return toRate;
         const targetRect = edge.target.collisionBox.getRectangle();
         const isExact =

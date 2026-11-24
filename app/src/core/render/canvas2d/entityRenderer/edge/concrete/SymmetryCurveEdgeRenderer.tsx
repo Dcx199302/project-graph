@@ -91,8 +91,8 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
   }
 
   public renderNormalState(edge: LineEdge): void {
-    const start = edge.bodyLine.start;
-    const end = edge.bodyLine.end;
+    const { line, sourceRate, targetRate } = edge.bodyLineGeometry;
+    const { start, end } = line;
 
     // 计算连线方向
     const lineDirection = end.subtract(start).normalize();
@@ -101,7 +101,7 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
     let endDirection: Vector;
 
     if (edge.source instanceof ConnectPoint) {
-      const byRate = Edge.getNormalVectorByRate(edge.sourceRectangleRate);
+      const byRate = Edge.getNormalVectorByRate(sourceRate);
       if (byRate !== null) {
         startDirection = byRate;
       } else {
@@ -110,7 +110,7 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
         startDirection = radial.magnitude() === 0 ? lineDirection : radial.normalize();
       }
     } else {
-      const fromRate = Edge.getNormalVectorByRate(edge.sourceRectangleRate);
+      const fromRate = Edge.getNormalVectorByRate(sourceRate);
       if (fromRate !== null) {
         startDirection = fromRate;
       } else {
@@ -128,7 +128,7 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
     }
 
     if (edge.target instanceof ConnectPoint) {
-      const byRate = Edge.getNormalVectorByRate(edge.targetRectangleRate);
+      const byRate = Edge.getNormalVectorByRate(targetRate);
       if (byRate !== null) {
         endDirection = byRate;
       } else {
@@ -137,7 +137,7 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
         endDirection = radial.magnitude() === 0 ? lineDirection.multiply(-1) : radial.normalize();
       }
     } else {
-      const toRate = Edge.getNormalVectorByRate(edge.targetRectangleRate);
+      const toRate = Edge.getNormalVectorByRate(targetRate);
       if (toRate !== null) {
         endDirection = toRate;
       } else {
@@ -259,8 +259,8 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
       ? this.project.stageStyleManager.currentStyle.StageObjectBorder
       : edge.color;
 
-    const start = edge.bodyLine.start;
-    const end = edge.bodyLine.end;
+    const { line, sourceRate, targetRate } = edge.bodyLineGeometry;
+    const { start, end } = line;
 
     // 计算连线方向
     const lineDirection = end.subtract(start).normalize();
@@ -271,7 +271,7 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
     if (edge.source instanceof ConnectPoint) {
       startDirection = Vector.getZero();
     } else {
-      const fromRate = Edge.getNormalVectorByRate(edge.sourceRectangleRate);
+      const fromRate = Edge.getNormalVectorByRate(sourceRate);
       if (fromRate !== null) {
         startDirection = fromRate;
       } else {
@@ -289,7 +289,7 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
     if (edge.target instanceof ConnectPoint) {
       endDirection = Vector.getZero();
     } else {
-      const toRate = Edge.getNormalVectorByRate(edge.targetRectangleRate);
+      const toRate = Edge.getNormalVectorByRate(targetRate);
       if (toRate !== null) {
         endDirection = toRate;
       } else {

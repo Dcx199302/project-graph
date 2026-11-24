@@ -42,8 +42,8 @@ export class KeyboardOnlyTreeEngine {
    * 例如向左时，源端点贴左侧，目标端点贴右侧。
    */
   private changeEdgeToDirection(edge: Edge, direction: Direction) {
-    this.project.stageManager.changeEdgesConnectLocation([edge], direction, true);
-    this.project.stageManager.changeEdgesConnectLocation([edge], this.getOppositeDirection(direction));
+    this.project.stageManager.changeEdgesConnectLocation([edge], direction, true, false);
+    this.project.stageManager.changeEdgesConnectLocation([edge], this.getOppositeDirection(direction), false, false);
   }
 
   /**
@@ -378,8 +378,13 @@ export class KeyboardOnlyTreeEngine {
     this.project.nodeConnector.connectConnectableEntity(source, target);
     const edges = this.project.graphMethods.getEdgesBetween(source, target);
     const directions = { right: Direction.Right, left: Direction.Left, up: Direction.Up, down: Direction.Down };
-    this.project.stageManager.changeEdgesConnectLocation(edges, directions[direction], true);
-    this.project.stageManager.changeEdgesConnectLocation(edges, this.getOppositeDirection(directions[direction]));
+    this.project.stageManager.changeEdgesConnectLocation(edges, directions[direction], true, false);
+    this.project.stageManager.changeEdgesConnectLocation(
+      edges,
+      this.getOppositeDirection(directions[direction]),
+      false,
+      false,
+    );
     if (layout) for (const edge of edges) edge.graphLayout = layout;
     return edges;
   }

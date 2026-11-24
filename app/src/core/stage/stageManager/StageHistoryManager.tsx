@@ -6,10 +6,15 @@ import { Delta, diff, patch } from "jsondiffpatch";
 import _ from "lodash";
 import { toast } from "sonner";
 
+function captureStage(project: Project): Record<string, any>[] {
+  // 序列化器会保留普通对象的引用，历史快照需要与舞台数据独立。
+  return _.cloneDeep(serialize(project.stage));
+}
+
 abstract class HistoryManagerAbs {
   public abstract readonly canUndo: boolean;
   public abstract readonly canRedo: boolean;
-  public abstract recordStep(): void;
+  public abstract recordStep(): boolean;
   public abstract undo(): void;
   public abstract redo(): void;
   public abstract get(index: number): Record<string, any>[];
@@ -33,7 +38,7 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
    * 存储完整序列化历史记录的数组
    * 每一项都是完整的舞台数据，不进行diff操作
    */
-  history: Record<string, any>[] = [];
+  history: Record<string, any>[][] = [];
 
   /**
    * 历史记录指针
@@ -43,7 +48,7 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
   // 在project加载完毕后调用
   constructor(private readonly project: Project) {
     super();
-    this.initialStage = serialize(project.stage);
+    this.initialStage = captureStage(project);
   }
 
   /**
@@ -51,21 +56,21 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
    * 直接保存完整的舞台序列化数据，优先考虑时间效率
    */
   recordStep() {
-    // 删除当前指针之后的所有历史记录
+    const currentStage = captureStage(this.project);
+    const previousStage = this.currentIndex < 0 ? this.initialStage : this.history[this.currentIndex];
+    if (_.isEqual(previousStage, currentStage)) return false;
     this.history.splice(this.currentIndex + 1);
-
-    // 保存当前舞台的完整序列化数据
-    const currentStage = serialize(this.project.stage);
     this.history.push(currentStage);
     this.currentIndex = this.history.length - 1;
 
     // 当历史记录超过限制时，删除最旧的记录
     while (this.history.length > Settings.historySize) {
-      this.history.shift();
+      this.initialStage = this.history.shift()!;
       this.currentIndex--;
     }
 
     this.project.projectState = ProjectState.Unsaved;
+    return true;
   }
 
   /**
@@ -191,7 +196,7 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
   clearHistory() {
     this.history = [];
     this.currentIndex = -1;
-    this.initialStage = serialize(this.project.stage);
+    this.initialStage = captureStage(this.project);
     this.project.projectState = ProjectState.Saved;
     if (Settings.showDebug) {
       toast("历史记录已清空");
@@ -234,44 +239,16 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
   // 在project加载完毕后调用
   constructor(private readonly project: Project) {
     super();
-    this.initialStage = serialize(project.stage);
+    this.initialStage = captureStage(project);
   }
 
-  /**
-   * 记录一步骤
-   * @param file
-   */
   recordStep() {
-    // console.trace("recordStep");
-    // this.deltas = this.deltas.splice(this.currentIndex + 1);
+    const change = diff(this.getSnapshot(this.currentIndex), captureStage(this.project));
+    if (!change) return false;
+    // 撤销后提交新修改时，丢弃旧的重做分支。
     this.deltas.splice(this.currentIndex + 1);
-    // 上面一行的含义：删除从 currentIndex + 1 开始的所有元素。
-    // [a, b, c, d, e]
-    //  0  1  2  3  4
-    //        ^
-    //  currentIndex = 2，去掉 3 4
-    // 变成
-    // [a, b, c]
-    //  0  1  2
-    //        ^
-
-    // 也就是撤回了好几步(两步)之后再做修改，后面的曾经历史就都删掉了，相当于重开了一个分支。
     this.currentIndex++;
-    // [a, b, c]
-    //  0  1  2  3
-    //           ^
-    const prev = serialize(this.get(this.currentIndex - 1)); // [C stage]
-    const current = serialize(this.project.stage); // [D stage]
-    const patch_ = diff(prev, current); // [D stage] - [C stage] = [d]
-    if (!patch_) {
-      this.currentIndex--; // 没有变化，当指针回退到当前位置
-      return;
-    }
-
-    this.deltas.push(patch_);
-    // [a, b, c, d]
-    //  0  1  2  3
-    //           ^
+    this.deltas.push(change);
     while (this.deltas.length > Settings.historySize) {
       // 当历史记录超过限制时，需要删除最旧的记录
       // 但是不能简单删除，因为get方法依赖于从initialStage开始应用所有delta
@@ -293,6 +270,7 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
       this.currentIndex = this.deltas.length - 1;
     }
     this.project.projectState = ProjectState.Unsaved;
+    return true;
   }
 
   /**
@@ -361,24 +339,15 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
   }
 
   get(index: number) {
-    // 处理边界情况：如果索引为负数，直接返回初始状态
-    if (index < 0) {
-      return deserialize(_.cloneDeep(this.initialStage), this.project);
-    }
+    return deserialize(this.getSnapshot(index), this.project);
+  }
 
-    // 先获取从0到index（包含index）的所有patch
-    const deltas = _.cloneDeep(this.deltas.slice(0, index + 1));
-    // 从initialStage开始应用patch，得到在index时刻的舞台序列化数据
-    // const data = deltas.reduce((acc, delta) => {
-    //   return patch(_.cloneDeep(acc), _.cloneDeep(delta)) as any;
-    // }, _.cloneDeep(this.initialStage));
-    let data = _.cloneDeep(this.initialStage); // 迭代这个data
-    for (const delta of deltas) {
-      data = patch(data, _.cloneDeep(delta)) as any;
+  private getSnapshot(index: number) {
+    let data = _.cloneDeep(this.initialStage);
+    for (const delta of this.deltas.slice(0, Math.max(0, index + 1))) {
+      data = patch(data, _.cloneDeep(delta)) as typeof data;
     }
-    // 反序列化得到舞台对象
-    const stage = deserialize(data, this.project);
-    return stage;
+    return data;
   }
 
   /**
@@ -388,7 +357,7 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
   clearHistory() {
     this.deltas = [];
     this.currentIndex = -1;
-    this.initialStage = serialize(this.project.stage);
+    this.initialStage = captureStage(this.project);
     this.project.projectState = ProjectState.Saved;
     if (Settings.showDebug) {
       toast("历史记录已清空");
@@ -402,7 +371,7 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
  * 具有直接更改舞台状态的能力
  */
 @service("historyManager")
-export class HistoryManager extends HistoryManagerAbs {
+export class HistoryManager {
   get canUndo() {
     return this.currentManager.canUndo;
   }
@@ -416,9 +385,10 @@ export class HistoryManager extends HistoryManagerAbs {
 
   // 当前使用的历史管理器实例
   private currentManager: HistoryManagerAbs;
+  private batchDepth = 0;
+  private pendingStep = false;
 
   constructor(private readonly project: Project) {
-    super();
     this.memoryEfficient = new HistorymanagerMemoryEfficient(project);
     this.timeEfficient = new HistoryManagerTimeEfficient(project);
 
@@ -440,8 +410,25 @@ export class HistoryManager extends HistoryManagerAbs {
    * 记录一步骤
    */
   public recordStep(): void {
-    this.currentManager.recordStep();
-    this.project.emit("stage-commit");
+    if (this.batchDepth > 0) {
+      this.pendingStep = true;
+    } else if (this.currentManager.recordStep()) {
+      this.project.emit("stage-commit");
+    }
+  }
+
+  /** 合并一次同步操作内部的记录，避免把异步等待期间的其他操作合进来。 */
+  public batch(action: () => undefined): void {
+    this.batchDepth++;
+    try {
+      action();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.pendingStep) {
+        this.pendingStep = false;
+        this.recordStep();
+      }
+    }
   }
 
   /**

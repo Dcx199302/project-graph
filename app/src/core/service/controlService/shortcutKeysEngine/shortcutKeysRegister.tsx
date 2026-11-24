@@ -765,7 +765,7 @@ export const allKeyBinds: KeyBindItem[] = [
       (project.stageManager.getSelectedEntities().length > 0 ||
         (project.rectangleSelect.getRectangle() !== null &&
           project.stageManager.getSelectedAssociations().length === 0)),
-    onPress: async (project) => {
+    onPress: (project) => {
       if (!project) return;
       const selected = project.stageManager.getSelectedStageObjects();
       if (selected.length === 1 && selected[0] instanceof Section) {
@@ -775,14 +775,12 @@ export const allKeyBinds: KeyBindItem[] = [
       const fromRectangle = selected.length === 0 && project.rectangleSelect.getRectangle() !== null;
       const section = fromRectangle
         ? project.sectionPackManager.createSectionFromSelectionRectangle()
-        : await project.sectionPackManager.packSelectedEntitiesToSection();
+        : project.sectionPackManager.packSelectedEntitiesToSection();
       if (!section) return;
       project.stageManager.clearSelectAll();
       section.isSelected = true;
       if (Settings.autoEnterSectionEditMode) {
         project.controllerUtils.editSectionTitle(section);
-      } else if (!fromRectangle) {
-        project.historyManager.recordStep();
       }
     },
   },
@@ -2522,9 +2520,10 @@ export const allKeyBinds: KeyBindItem[] = [
     icon: AlignStartHorizontal,
     when: whenHasMultipleSelectedEntities,
     onPress: (project) => {
-      project!.layoutManager.alignTop();
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Up, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Down);
+      project!.historyManager.batch(() => {
+        project!.layoutManager.alignTop();
+        project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Up, Direction.Down);
+      });
     },
   },
   {
@@ -2533,9 +2532,10 @@ export const allKeyBinds: KeyBindItem[] = [
     icon: AlignEndHorizontal,
     when: whenHasMultipleSelectedEntities,
     onPress: (project) => {
-      project!.layoutManager.alignBottom();
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Down, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Up);
+      project!.historyManager.batch(() => {
+        project!.layoutManager.alignBottom();
+        project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Down, Direction.Up);
+      });
     },
   },
   {
@@ -2544,9 +2544,10 @@ export const allKeyBinds: KeyBindItem[] = [
     icon: AlignStartVertical,
     when: whenHasMultipleSelectedEntities,
     onPress: (project) => {
-      project!.layoutManager.alignLeft();
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Left, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Right);
+      project!.historyManager.batch(() => {
+        project!.layoutManager.alignLeft();
+        project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Left, Direction.Right);
+      });
     },
   },
   {
@@ -2555,9 +2556,10 @@ export const allKeyBinds: KeyBindItem[] = [
     icon: AlignEndVertical,
     when: whenHasMultipleSelectedEntities,
     onPress: (project) => {
-      project!.layoutManager.alignRight();
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Right, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Left);
+      project!.historyManager.batch(() => {
+        project!.layoutManager.alignRight();
+        project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Right, Direction.Left);
+      });
     },
   },
   {
@@ -2809,30 +2811,21 @@ export const allKeyBinds: KeyBindItem[] = [
     defaultKey: "e t u",
     icon: Spline,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.switchEdgeToUndirectedEdge();
-      project!.historyManager.recordStep();
-    },
+    onPress: (project) => project!.stageManager.switchEdgeToUndirectedEdge(),
   },
   {
     id: "switchEdgeToArcEdge",
     defaultKey: "e t a",
     icon: Radius,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.switchEdgeToArcEdge();
-      project!.historyManager.recordStep();
-    },
+    onPress: (project) => project!.stageManager.switchEdgeToArcEdge(),
   },
   {
     id: "switchUndirectedEdgeToEdge",
     defaultKey: "u t e",
     icon: MoveUpRight,
     when: whenHasSelectedMTUEdges,
-    onPress: (project) => {
-      project!.stageManager.switchUndirectedEdgeToEdge();
-      project!.historyManager.recordStep();
-    },
+    onPress: (project) => project!.stageManager.switchUndirectedEdgeToEdge(),
   },
   {
     id: "setSelectedEdgeSourceConnectLocationUp",
@@ -2909,50 +2902,35 @@ export const allKeyBinds: KeyBindItem[] = [
     defaultKey: "6 6",
     icon: MoveRight,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Right, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Left);
-    },
+    onPress: (project) => project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Right, Direction.Left),
   },
   {
     id: "setSelectedEdgeToLeft",
     defaultKey: "4 4",
     icon: MoveLeft,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Left, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Right);
-    },
+    onPress: (project) => project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Left, Direction.Right),
   },
   {
     id: "setSelectedEdgeToUp",
     defaultKey: "8 8",
     icon: MoveUp,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Up, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Down);
-    },
+    onPress: (project) => project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Up, Direction.Down),
   },
   {
     id: "setSelectedEdgeToDown",
     defaultKey: "2 2",
     icon: MoveDown,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Down, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(Direction.Up);
-    },
+    onPress: (project) => project!.stageManager.changeSelectedEdgeConnectLocations(Direction.Down, Direction.Up),
   },
   {
     id: "setSelectedEdgeToCenter",
     defaultKey: "5 5",
     icon: SquareDot,
     when: whenHasSelectedLineEdges,
-    onPress: (project) => {
-      project!.stageManager.changeSelectedEdgeConnectLocation(null, true);
-      project!.stageManager.changeSelectedEdgeConnectLocation(null);
-    },
+    onPress: (project) => project!.stageManager.changeSelectedEdgeConnectLocations(null, null),
   },
   {
     id: "setMTUEdgeArrowOuter",
@@ -3229,12 +3207,12 @@ export const allKeyBinds: KeyBindItem[] = [
       if (!project!.keyboardOnlyEngine.isOpenning()) return;
       const selectedEntities = project!.stageManager.getSelectedEntities();
       if (selectedEntities.length !== 2) return;
-      project!.historyManager.recordStep();
       const [e1, e2] = selectedEntities;
       const p1 = e1.collisionBox.getRectangle().location.clone();
       const p2 = e2.collisionBox.getRectangle().location.clone();
       e1.moveTo(p2);
       e2.moveTo(p1);
+      project!.historyManager.recordStep();
     },
   },
 
@@ -3250,13 +3228,13 @@ export const allKeyBinds: KeyBindItem[] = [
       const textNodes = selectedNodes.filter((node) => node instanceof TextNode) as TextNode[];
       const latexNodes = selectedNodes.filter((node) => node instanceof LatexNode) as LatexNode[];
       if (textNodes.length === 0 && latexNodes.length === 0) return;
-      project!.historyManager.recordStep();
       for (const node of textNodes) {
         node.decreaseFontSize(TextNodeSmartTools.getAnchorRateForTextNode(project!, node));
       }
       for (const node of latexNodes) {
         node.decreaseFontSize();
       }
+      project!.historyManager.recordStep();
     },
   },
   {
@@ -3270,13 +3248,13 @@ export const allKeyBinds: KeyBindItem[] = [
       const textNodes = selectedNodes.filter((node) => node instanceof TextNode) as TextNode[];
       const latexNodes = selectedNodes.filter((node) => node instanceof LatexNode) as LatexNode[];
       if (textNodes.length === 0 && latexNodes.length === 0) return;
-      project!.historyManager.recordStep();
       for (const node of textNodes) {
         node.increaseFontSize(TextNodeSmartTools.getAnchorRateForTextNode(project!, node));
       }
       for (const node of latexNodes) {
         node.increaseFontSize();
       }
+      project!.historyManager.recordStep();
     },
   },
 

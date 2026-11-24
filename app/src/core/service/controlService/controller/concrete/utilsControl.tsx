@@ -211,13 +211,13 @@ export class ControllerUtils {
         latexPreview.dismiss();
         clickedNode!.isEditing = false;
         this.project.controller.isCameraLocked = false;
-        if (clickedNode.text !== textBeforeEdit) {
+        // 完整公式在退出编辑时转换，编辑期间保留源码。
+        const convertedToLatex = autoChangeTextNodeToLatexNode(this.project, clickedNode);
+        if (convertedToLatex || clickedNode.text !== textBeforeEdit) {
           this.project.historyManager.recordStep();
         }
 
-        await autoChangeTextNodeToReferenceBlock(this.project, clickedNode);
-        // 完整公式在退出编辑时转换，编辑期间保留源码。
-        await autoChangeTextNodeToLatexNode(this.project, clickedNode);
+        if (!convertedToLatex) await autoChangeTextNodeToReferenceBlock(this.project, clickedNode);
       });
   }
 

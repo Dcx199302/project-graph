@@ -375,16 +375,12 @@ export class KeyboardOnlyTreeEngine {
     direction: "right" | "left" | "down" | "up",
     layout?: PreservedGraphLayout,
   ): Edge[] {
-    if (layout) this.project.nodeConnector.connectConnectableEntity(source, target);
-    else this.project.stageManager.connectEntity(source, target);
+    this.project.nodeConnector.connectConnectableEntity(source, target);
     const edges = this.project.graphMethods.getEdgesBetween(source, target);
     const directions = { right: Direction.Right, left: Direction.Left, up: Direction.Up, down: Direction.Down };
     this.project.stageManager.changeEdgesConnectLocation(edges, directions[direction], true);
     this.project.stageManager.changeEdgesConnectLocation(edges, this.getOppositeDirection(directions[direction]));
-    if (layout && edges.length) {
-      for (const edge of edges) edge.graphLayout = layout;
-      this.project.historyManager.recordStep();
-    }
+    if (layout) for (const edge of edges) edge.graphLayout = layout;
     return edges;
   }
 
@@ -425,6 +421,7 @@ export class KeyboardOnlyTreeEngine {
         SoundService.play.treeGenerateDeepSoundFile();
         // 连接成功后触发树形格式化布局（与新建节点逻辑一致）
         this.layoutAfterGrowth(this.project.graphMethods.getRoots(rootNode, true), layout);
+        this.project.historyManager.recordStep();
         if (editEdgeFirst && newEdges.length > 0) {
           this.project.controllerUtils.editEdgeText(newEdges[0]);
         }
@@ -537,6 +534,7 @@ export class KeyboardOnlyTreeEngine {
       newNode.isSelected = true;
       rootNode.isSelected = false;
     }
+    this.project.historyManager.recordStep();
 
     // 特效
     this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(rootNode, newNode));

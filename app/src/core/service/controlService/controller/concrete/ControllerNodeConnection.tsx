@@ -118,15 +118,15 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     // 是否是在Section内部双击
     const sections = this.project.sectionMethods.getSectionsByInnerLocation(pressWorldLocation);
 
-    const pointUUID = this.project.nodeAdder.addConnectPoint(pressWorldLocation, sections);
-    const connectPoint = this.project.stageManager.getConnectableEntityByUUID(pointUUID) as ConnectPoint;
-
-    // 连向新质点
-    for (const fromEntity of this.connectFromEntities) {
-      this.project.stageManager.connectEntity(fromEntity, connectPoint);
-      this.addConnectEffect(fromEntity, connectPoint);
-    }
-    this.connectFromEntities = [connectPoint];
+    this.project.historyManager.batch(() => {
+      const pointUUID = this.project.nodeAdder.addConnectPoint(pressWorldLocation, sections);
+      const connectPoint = this.project.stageManager.getConnectableEntityByUUID(pointUUID) as ConnectPoint;
+      this.project.stageManager.connectMultipleEntities(this.connectFromEntities, connectPoint);
+      for (const fromEntity of this.connectFromEntities) {
+        this.addConnectEffect(fromEntity, connectPoint);
+      }
+      this.connectFromEntities = [connectPoint];
+    });
 
     // 选中这个质点
     this.project.stageManager.clearSelectAll();
@@ -425,11 +425,10 @@ export class ControllerNodeConnectionClass extends ControllerClass {
         ? this._startImageLocation.get(newConnectFromEntities[0].uuid)?.clone()
         : undefined;
 
-      this.project.controllerUtils.addTextNodeByLocation(releaseWorldLocation, true).then((uuid) => {
-        const createdNode = this.project.stageManager.getTextNodeByUUID(uuid) as ConnectableEntity;
-
-        // 让这个新建的节点进入编辑状态
-        this.project.controllerUtils.textNodeInEditModeByUUID(uuid);
+      const sections = this.project.sectionMethods.getSectionsByInnerLocation(releaseWorldLocation);
+      this.project.nodeAdder.addTextNodeByClick(releaseWorldLocation, sections, true, false).then((uuid) => {
+        const createdNode = this.project.stageManager.getTextNodeByUUID(uuid);
+        if (!createdNode) return;
 
         const sourceRectangleRate = Settings.autoAdjustLineEndpointsWhenRightDragToBlank
           ? (sourceImageLocation ?? this.directionToRate(sourceDirection))
@@ -449,6 +448,7 @@ export class ControllerNodeConnectionClass extends ControllerClass {
         for (const fromEntity of newConnectFromEntities) {
           this.addConnectEffect(fromEntity, createdNode, sourceRectangleRate, targetRectangleRate);
         }
+        this.project.controllerUtils.textNodeInEditModeByUUID(uuid);
       });
     }
     this.clear();

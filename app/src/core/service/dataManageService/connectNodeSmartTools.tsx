@@ -19,12 +19,7 @@ export namespace ConnectNodeSmartTools {
       .filter((entity) => entity instanceof ConnectableEntity);
     if (selectedNodes.length <= 1) return;
     selectedNodes.sort((a, b) => a.collisionBox.getRectangle().location.y - b.collisionBox.getRectangle().location.y);
-    for (let i = 0; i < selectedNodes.length - 1; i++) {
-      const fromNode = selectedNodes[i];
-      const toNode = selectedNodes[i + 1];
-      if (fromNode === toNode) continue;
-      project.stageManager.connectEntity(fromNode, toNode, false);
-    }
+    connectInOrder(project, selectedNodes);
   }
 
   // 向右连接
@@ -34,27 +29,31 @@ export namespace ConnectNodeSmartTools {
       .filter((entity) => entity instanceof ConnectableEntity);
     if (selectedNodes.length <= 1) return;
     selectedNodes.sort((a, b) => a.collisionBox.getRectangle().location.x - b.collisionBox.getRectangle().location.x);
-    for (let i = 0; i < selectedNodes.length - 1; i++) {
-      const fromNode = selectedNodes[i];
-      const toNode = selectedNodes[i + 1];
-      if (fromNode === toNode) continue;
-      project.stageManager.connectEntity(fromNode, toNode, false);
-    }
+    connectInOrder(project, selectedNodes);
+  }
+
+  function connectInOrder(project: Project, nodes: ConnectableEntity[]) {
+    project.historyManager.batch(() => {
+      for (let i = 0; i < nodes.length - 1; i++) {
+        if (nodes[i] === nodes[i + 1]) continue;
+        project.stageManager.connectEntity(nodes[i], nodes[i + 1], false);
+      }
+    });
   }
 
   // 全连接
   export function connectAll(project: Project) {
     const selectedNodes = project.stageManager.getSelectedEntities();
-    for (let i = 0; i < selectedNodes.length; i++) {
-      for (let j = 0; j < selectedNodes.length; j++) {
-        const fromNode = selectedNodes[i];
-        const toNode = selectedNodes[j];
-        if (fromNode === toNode) continue;
-        if (fromNode instanceof ConnectableEntity && toNode instanceof ConnectableEntity) {
-          project.stageManager.connectEntity(fromNode, toNode, false);
+    project.historyManager.batch(() => {
+      for (const fromNode of selectedNodes) {
+        for (const toNode of selectedNodes) {
+          if (fromNode === toNode) continue;
+          if (fromNode instanceof ConnectableEntity && toNode instanceof ConnectableEntity) {
+            project.stageManager.connectEntity(fromNode, toNode, false);
+          }
         }
       }
-    }
+    });
   }
 
   /**
@@ -94,7 +93,7 @@ export namespace ConnectNodeSmartTools {
         color: edge.color,
       }));
       // 删除所有已有的连线
-      collideEdges.forEach((edge) => project.stageManager.deleteAssociation(edge));
+      collideEdges.forEach((edge) => project.deleteManager.deleteEdge(edge));
 
       if (isMultiEdgesFromSameSource) {
         // 从同一个源节点出发的多条连线，只创建一条源节点到新节点的连线
@@ -191,7 +190,7 @@ export namespace ConnectNodeSmartTools {
       }));
 
       // 删除所有入边和出边
-      [...inEdges, ...outEdges].forEach((edge) => project.stageManager.deleteAssociation(edge));
+      [...inEdges, ...outEdges].forEach((edge) => project.deleteManager.deleteEdge(edge));
 
       // 将入边的源节点直接连接到出边的目标节点
       sourceNodes.forEach((source) => {
@@ -209,7 +208,7 @@ export namespace ConnectNodeSmartTools {
       });
     } else {
       // 端点节点：只有入边或只有出边，直接删除所有连边
-      [...inEdges, ...outEdges].forEach((edge) => project.stageManager.deleteAssociation(edge));
+      [...inEdges, ...outEdges].forEach((edge) => project.deleteManager.deleteEdge(edge));
     }
 
     // 根据参数决定是否向上平移节点

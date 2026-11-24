@@ -252,13 +252,13 @@ export namespace TextNodeSmartTools {
     setTimeout(() => {
       Dialog.input("请输入分割符（n代表一个换行符，t代表一个制表符）").then((userInput) => {
         if (userInput === undefined || userInput === "") return;
-        userInput = userInput.replaceAll("n", "\n");
-        userInput = userInput.replaceAll("t", "\t");
-        for (const node of selectedTextNodes) {
-          keiOneTextNode(project, node, userInput);
-        }
-        // 删除所有选中的文本节点
-        project.stageManager.deleteEntities(selectedTextNodes);
+        const separator = userInput.replaceAll("n", "\n").replaceAll("t", "\t");
+        project.historyManager.batch(() => {
+          for (const node of selectedTextNodes) {
+            keiOneTextNode(project, node, separator);
+          }
+          project.stageManager.deleteEntities(selectedTextNodes);
+        });
       });
     });
   }
@@ -343,9 +343,6 @@ export namespace TextNodeSmartTools {
       return;
     }
 
-    // 记录操作历史
-    project.historyManager.recordStep();
-
     for (const node of selectedTextNodes) {
       if (node.text.length > 0) {
         // 获取要移除的字符
@@ -394,6 +391,7 @@ export namespace TextNodeSmartTools {
         node.isSelected = true;
       }
     }
+    project.historyManager.recordStep();
   }
 
   export function removeLastCharFromSelectedTextNodes(project: Project) {
@@ -401,9 +399,6 @@ export namespace TextNodeSmartTools {
     if (selectedTextNodes.length === 0) {
       return;
     }
-
-    // 记录操作历史
-    project.historyManager.recordStep();
 
     for (const node of selectedTextNodes) {
       if (node.text.length > 0) {
@@ -454,6 +449,7 @@ export namespace TextNodeSmartTools {
         node.isSelected = true;
       }
     }
+    project.historyManager.recordStep();
   }
 
   export function okk() {

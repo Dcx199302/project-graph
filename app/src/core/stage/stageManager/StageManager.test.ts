@@ -13,7 +13,7 @@ vi.mock("@/core/Project", () => ({
 vi.mock("@/core/render/canvas2d/renderer", () => ({
   Renderer: { FONT_SIZE: 24, NODE_PADDING: 10 },
 }));
-vi.mock("@/core/service/Settings", () => ({ Settings: { watch: vi.fn() } }));
+vi.mock("@/core/service/Settings", () => ({ Settings: { watch: vi.fn(), historySize: 100 } }));
 vi.mock("@/core/service/Telemetry", () => ({ Telemetry: {} }));
 vi.mock("@/core/service/feedbackService/SoundService", () => ({ SoundService: {} }));
 vi.mock("@/core/stage/stageObject/entity/ReferenceBlockNode", () => ({ ReferenceBlockNode: class {} }));
@@ -40,6 +40,12 @@ import { DeleteManager } from "./concreteMethods/StageDeleteManager";
 import { SectionInOutManager } from "./concreteMethods/StageSectionInOutManager";
 import { SectionPackManager } from "./concreteMethods/StageSectionPackManager";
 import { Direction } from "@/types/directions";
+import { HistoryManager } from "./StageHistoryManager";
+import { NodeConnector } from "./concreteMethods/StageNodeConnector";
+import { SectionMethods } from "./basicMethods/SectionMethods";
+import { GraphMethods } from "./basicMethods/GraphMethods";
+import { ConnectNodeSmartTools } from "@/core/service/dataManageService/connectNodeSmartTools";
+import { ArcEdge } from "@/core/stage/stageObject/association/ArcEdge";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -305,6 +311,111 @@ it("ungroups a collapsed nested section without deleting its nodes or their conn
   expect(parent.children).toEqual([first, second]);
   expect(project.stageManager.getSelectedEntities()).toEqual([first, second]);
   expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+});
+
+function createProjectWithHistory() {
+  const project = {
+    stage: [],
+    emit: vi.fn(),
+    effects: { addEffect: vi.fn(), addEffects: vi.fn() },
+    edgeRenderer: { getCuttingEffects: () => [] },
+    syncAssociationManager: { onStageObjectDeleted: vi.fn() },
+    stageUtils: { replaceAutoNameTemplate: () => "New group" },
+  } as unknown as Project;
+  project.stageManager = new StageManager(project);
+  project.deleteManager = new DeleteManager(project);
+  project.nodeConnector = new NodeConnector(project);
+  project.graphMethods = new GraphMethods(project);
+  project.sectionMethods = new SectionMethods(project);
+  project.sectionInOutManager = new SectionInOutManager(project);
+  project.sectionPackManager = new SectionPackManager(project);
+  return project;
+}
+
+it("undoes and redoes a batch of new connections and a batch of edge conversions independently", () => {
+  const project = createProjectWithHistory();
+  const nodes = ["a", "b", "c"].map((text, index) => {
+    const node = new TextNode(project, { text });
+    node.moveTo(new Vector(index * 150, 0));
+    node.isSelected = true;
+    return node;
+  });
+  project.stage.push(...nodes);
+  project.historyManager = new HistoryManager(project);
+
+  ConnectNodeSmartTools.connectRight(project);
+  const lines = project.stageManager.getLineEdges();
+  expect(lines).toHaveLength(2);
+  lines.forEach((line) => (line.isSelected = true));
+  project.stageManager.switchEdgeToArcEdge();
+  expect(project.stageManager.getAssociations().every((edge) => edge instanceof ArcEdge)).toBe(true);
+
+  project.historyManager.undo();
+  expect(project.stageManager.getLineEdges().map((edge) => [edge.source.uuid, edge.target.uuid])).toEqual([
+    [nodes[0].uuid, nodes[1].uuid],
+    [nodes[1].uuid, nodes[2].uuid],
+  ]);
+  project.historyManager.undo();
+  expect(project.stageManager.getAssociations()).toHaveLength(0);
+  expect(project.historyManager.canUndo).toBe(false);
+
+  project.historyManager.redo();
+  expect(project.stageManager.getLineEdges()).toHaveLength(2);
+  project.historyManager.redo();
+  expect(project.stageManager.getAssociations()).toHaveLength(2);
+  expect(project.stageManager.getAssociations().every((edge) => edge instanceof ArcEdge)).toBe(true);
+  expect(project.historyManager.canRedo).toBe(false);
+});
+
+it("groups all children of an existing group with one undo and preserves the outer group", () => {
+  const project = createProjectWithHistory();
+  const nodes = ["a", "b"].map((text) => new TextNode(project, { text }));
+  const parent = new Section(project, { text: "Outer group", children: nodes });
+  project.stage.push(parent, ...nodes);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+
+  const inner = project.sectionPackManager.packEntityToSection(nodes)!;
+  expect(parent.children).toEqual([inner]);
+  expect(inner.children).toEqual(nodes);
+  expect(inner.parentSection).toBe(parent);
+
+  project.historyManager.undo();
+  const [restoredParent] = project.stageManager.getSections();
+  expect(project.stageManager.getSections()).toHaveLength(1);
+  expect(restoredParent.children.map((child) => child.uuid)).toEqual(nodes.map((node) => node.uuid));
+  expect(project.historyManager.canUndo).toBe(false);
+
+  project.historyManager.redo();
+  const [outer, nested] = project.stageManager.getSections();
+  expect(outer.children).toEqual([nested]);
+  expect(nested.children.map((child) => child.uuid)).toEqual(nodes.map((node) => node.uuid));
+  expect(project.historyManager.canRedo).toBe(false);
+});
+
+it("deletes a selected node and a separately selected edge in one step", () => {
+  const project = createProjectWithHistory();
+  const [first, second, third] = ["a", "b", "c"].map((text) => new TextNode(project, { text }));
+  const attached = LineEdge.fromTwoEntity(project, first, second);
+  const separate = LineEdge.fromTwoEntity(project, second, third);
+  first.isSelected = true;
+  separate.isSelected = true;
+  project.stage.push(first, second, third, attached, separate);
+  project.historyManager = new HistoryManager(project);
+
+  project.stageManager.deleteSelectedStageObjects();
+  expect(project.stage).toEqual([second, third]);
+  project.historyManager.undo();
+  expect(project.stage.map((object) => object.uuid)).toEqual([
+    first.uuid,
+    second.uuid,
+    third.uuid,
+    attached.uuid,
+    separate.uuid,
+  ]);
+  expect(project.historyManager.canUndo).toBe(false);
+  project.historyManager.redo();
+  expect(project.stage.map((object) => object.uuid)).toEqual([second.uuid, third.uuid]);
 });
 
 describe("StageManager.updateReferences", () => {

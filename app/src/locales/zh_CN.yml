@@ -1297,11 +1297,6 @@ settings:
     description: |
       开启后，当按下 Ctrl/Alt/Shift/Win（Windows）或 ⌘/⌥/⇧/⌃（Mac）等修饰键时，会显示匹配的快捷键提示。
       按住修饰键不放可查看第一页快捷键，松开后再次按下可翻页查看更多。
-  showEditModeHint:
-    title: 文本节点编辑模式提示
-    description: |
-      进入文本节点编辑模式时，在节点顶部显示"正在编辑模式"，底部显示换行和退出编辑的快捷键提示。
-      关闭后不再渲染这些提示文字。
   textNodeEditModeOutlineOpacity:
     title: 文本节点编辑状态交互区域提示性边框透明度
     description: |
@@ -2803,9 +2798,6 @@ common:
     startEditTitle: 进入编辑模式
     doubleClick: 双击
     or: 或
-    editingMode: 正在编辑模式
-    lineBreak: 换行
-    exitEdit: 退出编辑模式
 
 projectOwnership:
   alreadyOpen: 已切换到打开的标签页。

@@ -201,6 +201,6 @@ export class SectionInOutManager {
     }
 
     // 从舞台中删除原section
-    this.project.stageManager.deleteEntities([section]);
+    this.project.deleteManager.deleteEntities([section]);
   }
 }

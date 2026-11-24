@@ -82,14 +82,13 @@ function createGraph(graphLayout?: PreservedGraphLayout) {
     isLeftToRight: () => true,
   });
   const edges = [edge(root, jsx, graphLayout), edge(jsx, component, graphLayout), edge(jsx, taxonomy, graphLayout)];
-  const connect = (from: TextNode, to: TextNode) => edges.push(edge(from, to));
+  const connect = vi.fn((from: TextNode, to: TextNode) => edges.push(edge(from, to)));
   const stageManager = {
     getConnectableEntity: () => nodes,
     getTextNodes: () => nodes,
     getEntities: () => nodes,
     getEdges: () => edges,
     add: (newNode: TextNode) => nodes.push(newNode),
-    connectEntity: vi.fn(connect),
     changeEdgesConnectLocation: vi.fn(),
   };
   const recordStep = vi.fn();
@@ -124,6 +123,7 @@ function createGraph(graphLayout?: PreservedGraphLayout) {
     taxonomy,
     obstacle,
     stageManager,
+    connect,
     recordStep,
     fastTree,
     project,
@@ -151,11 +151,13 @@ it("adds a child to the existing fishbone rib and avoids obstacles without movin
 });
 
 it("still formats ordinary trees when adding a child with automatic layout enabled", () => {
-  const { engine, nodes, edges, stageManager, fastTree } = createGraph();
+  const { engine, nodes, edges, connect, fastTree, recordStep } = createGraph();
   engine.generateChildNode("new child");
-  expect(stageManager.connectEntity).toHaveBeenCalledOnce();
+  expect(connect).toHaveBeenCalledOnce();
   expect(edges.at(-1)?.graphLayout).toBeUndefined();
   expect(fastTree).toHaveBeenCalledExactlyOnceWith(nodes[0]);
+  expect(recordStep).toHaveBeenCalledOnce();
+  expect(fastTree.mock.invocationCallOrder[0]).toBeLessThan(recordStep.mock.invocationCallOrder[0]);
 });
 
 it("also skips tree formatting when the growth probe connects to an existing node in a fishbone", () => {

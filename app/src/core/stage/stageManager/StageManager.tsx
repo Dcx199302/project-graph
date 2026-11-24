@@ -761,27 +761,21 @@ export class StageManager {
       }
     }
 
-    this.deleteEntities(filteredEntities);
+    this.project.historyManager.batch(() => {
+      this.deleteEntities(filteredEntities);
+      for (const association of this.getAssociations()) {
+        if (!association.isSelected || this.project.sectionMethods.isObjectBeLockedBySection(association)) continue;
+        if (!this.deleteAssociation(association)) continue;
+        if (association instanceof Edge) {
+          this.project.effects.addEffects(this.project.edgeRenderer.getCuttingEffects(association));
+        }
+      }
+    });
     // feature：delete键删除的时候，如果有父节点，让选中状态移动到父节点上
     if (parentSet.size > 0) {
       const firstParent = parentSet.values().next().value;
       if (firstParent) {
         firstParent.isSelected = true;
-      }
-    }
-
-    // 处理所有类型的边，包括普通边和多目标无向边
-    for (const association of this.getAssociations()) {
-      if (association.isSelected) {
-        // 检查连线是否连接了锁定的 section 内的物体
-        if (this.project.sectionMethods.isObjectBeLockedBySection(association)) {
-          continue; // 连接了锁定 section 内物体的连线不参与删除
-        }
-
-        this.deleteAssociation(association);
-        if (association instanceof Edge) {
-          this.project.effects.addEffects(this.project.edgeRenderer.getCuttingEffects(association));
-        }
       }
     }
   }
@@ -790,7 +784,7 @@ export class StageManager {
       return this.deleteEdge(deleteAssociation);
     } else if (deleteAssociation instanceof MultiTargetUndirectedEdge) {
       const res = this.project.deleteManager.deleteMultiTargetUndirectedEdge(deleteAssociation);
-      this.project.historyManager.recordStep();
+      if (res) this.project.historyManager.recordStep();
       return res;
     }
     toast.error("无法删除未知类型的关系");
@@ -799,7 +793,7 @@ export class StageManager {
 
   deleteEdge(deleteEdge: Edge): boolean {
     const res = this.project.deleteManager.deleteEdge(deleteEdge);
-    this.project.historyManager.recordStep();
+    if (res) this.project.historyManager.recordStep();
     return res;
   }
 
@@ -900,7 +894,6 @@ export class StageManager {
   generateNodeMermaidByText(text: string, location = this.project.camera.location) {
     try {
       this.project.nodeAdder.addNodeMermaidByText(text, location);
-      this.project.historyManager.recordStep();
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -908,17 +901,15 @@ export class StageManager {
 
   generateNodeByMarkdown(text: string, location = this.project.camera.location, autoLayout = true) {
     this.project.nodeAdder.addNodeByMarkdown(text, location, autoLayout);
-    this.project.historyManager.recordStep();
   }
 
   /** 将多个实体打包成一个section，并添加到舞台中 */
-  async packEntityToSection(addEntities: Entity[]) {
-    await this.project.sectionPackManager.packEntityToSection(addEntities);
-    this.project.historyManager.recordStep();
+  packEntityToSection(addEntities: Entity[]) {
+    this.project.sectionPackManager.packEntityToSection(addEntities);
   }
 
   /** 将选中的实体打包成一个section，并添加到舞台中 */
-  async packEntityToSectionBySelected() {
+  packEntityToSectionBySelected() {
     const selectedNodes = this.getSelectedEntities();
     if (selectedNodes.length === 0) {
       return;
@@ -994,6 +985,15 @@ export class StageManager {
   changeSelectedEdgeConnectLocation(direction: Direction | null, isSource: boolean = false) {
     const edges = this.getSelectedAssociations().filter((edge) => edge instanceof Edge);
     this.changeEdgesConnectLocation(edges, direction, isSource);
+    if (edges.length > 0) this.project.historyManager.recordStep();
+  }
+
+  changeSelectedEdgeConnectLocations(source: Direction | null, target: Direction | null) {
+    const edges = this.getSelectedAssociations().filter((edge) => edge instanceof Edge);
+    if (edges.length === 0) return;
+    this.changeEdgesConnectLocation(edges, source, true);
+    this.changeEdgesConnectLocation(edges, target);
+    this.project.historyManager.recordStep();
   }
 
   /**
@@ -1033,10 +1033,12 @@ export class StageManager {
         prepareDeleteLineEdge.push(edge);
       }
     }
-    for (const lineEdge of prepareDeleteLineEdge) {
-      this.deleteEdge(lineEdge);
-      this.connectEntityByCrEdge(lineEdge.source, lineEdge.target);
-    }
+    this.project.historyManager.batch(() => {
+      for (const lineEdge of prepareDeleteLineEdge) {
+        if (!this.deleteEdge(lineEdge)) continue;
+        this.connectEntityByCrEdge(lineEdge.source, lineEdge.target);
+      }
+    });
   }
 
   /**
@@ -1050,18 +1052,16 @@ export class StageManager {
         prepareDeleteLineEdge.push(edge);
       }
     }
-    for (const edge of prepareDeleteLineEdge) {
-      if (edge.target === edge.source) {
-        continue;
+    this.project.historyManager.batch(() => {
+      for (const edge of prepareDeleteLineEdge) {
+        if (edge.target === edge.source || !this.deleteEdge(edge)) continue;
+        const undirectedEdge = MultiTargetUndirectedEdge.createFromSomeEntity(this.project, [edge.target, edge.source]);
+        undirectedEdge.text = edge.text;
+        undirectedEdge.color = edge.color.clone();
+        undirectedEdge.arrow = "outer";
+        this.add(undirectedEdge);
       }
-      this.deleteEdge(edge);
-      const undirectedEdge = MultiTargetUndirectedEdge.createFromSomeEntity(this.project, [edge.target, edge.source]);
-      undirectedEdge.text = edge.text;
-      undirectedEdge.color = edge.color.clone();
-      undirectedEdge.arrow = "outer";
-      // undirectedEdge.isSelected = true;
-      this.add(undirectedEdge);
-    }
+    });
   }
   /**
    * 有向边转弧形边
@@ -1073,24 +1073,23 @@ export class StageManager {
         prepareConvert.push(edge);
       }
     }
-    for (const edge of prepareConvert) {
-      if (edge.target === edge.source) {
-        continue;
+    this.project.historyManager.batch(() => {
+      for (const edge of prepareConvert) {
+        if (edge.target === edge.source || !this.deleteEdge(edge)) continue;
+        const arcEdge = new ArcEdge(this.project, {
+          associationList: [edge.source, edge.target],
+          text: edge.text,
+          color: edge.color.clone(),
+          sourceRectangleRate: edge.sourceRectangleRate.clone(),
+          targetRectangleRate: edge.targetRectangleRate.clone(),
+          lineType: edge.lineType,
+          arrowType: edge.arrowType,
+          graphLayout: edge.graphLayout,
+          offset: 10,
+        });
+        this.add(arcEdge);
       }
-      this.deleteEdge(edge);
-      const arcEdge = new ArcEdge(this.project, {
-        associationList: [edge.source, edge.target],
-        text: edge.text,
-        color: edge.color.clone(),
-        sourceRectangleRate: edge.sourceRectangleRate.clone(),
-        targetRectangleRate: edge.targetRectangleRate.clone(),
-        lineType: edge.lineType,
-        arrowType: edge.arrowType,
-        graphLayout: edge.graphLayout,
-        offset: 10,
-      });
-      this.add(arcEdge);
-    }
+    });
   }
   /**
    * 无向边转有向边
@@ -1103,21 +1102,18 @@ export class StageManager {
         prepareDeleteUndirectedEdge.push(edge);
       }
     }
-    for (const edge of prepareDeleteUndirectedEdge) {
-      if (edge.associationList.length !== 2) {
-        continue;
-      }
-
-      const [fromNode, toNode] = edge.associationList;
-      if (fromNode && toNode && fromNode instanceof ConnectableEntity && toNode instanceof ConnectableEntity) {
+    this.project.historyManager.batch(() => {
+      for (const edge of prepareDeleteUndirectedEdge) {
+        if (edge.associationList.length !== 2) continue;
+        const [fromNode, toNode] = edge.associationList;
+        if (!(fromNode instanceof ConnectableEntity && toNode instanceof ConnectableEntity)) continue;
+        if (!this.deleteAssociation(edge)) continue;
         const lineEdge = LineEdge.fromTwoEntity(this.project, fromNode, toNode);
         lineEdge.text = edge.text;
         lineEdge.color = edge.color.clone();
-        this.deleteAssociation(edge);
         this.add(lineEdge);
-        this.updateReferences();
       }
-    }
+    });
   }
 
   addSelectedCREdgeControlPoint() {

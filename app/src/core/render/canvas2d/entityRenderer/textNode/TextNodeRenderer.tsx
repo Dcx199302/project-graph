@@ -513,66 +513,7 @@ export class TextNodeRenderer {
    * @param node
    */
   private renderTextNodeTextLayer(node: TextNode) {
-    // 编辑状态
-    if (node.isEditing) {
-      // 编辑状态下，在节点顶部显示"正在编辑模式"，底部显示换行和退出提示
-      if (Settings.showEditModeHint) {
-        const hintColor = this.project.stageStyleManager.currentStyle.StageObjectBorder.clone();
-        hintColor.a = 0.5;
-        const titleColor = this.project.stageStyleManager.currentStyle.CollideBoxSelected.clone();
-        titleColor.a = 0.8;
-
-        // 快捷键映射
-        const keyMap: Record<string, string> = {
-          enter: "Enter",
-          ctrlEnter: "Ctrl + Enter",
-          altEnter: "Alt + Enter",
-          shiftEnter: "Shift + Enter",
-        };
-
-        // 读取设置
-        const lineBreakKey = keyMap[Settings.textNodeContentLineBreak] || "Shift + Enter";
-        const exitEditKey = keyMap[Settings.textNodeExitEditMode] || "Enter";
-
-        // 获取翻译
-        const editingModeTitle = i18next.t("editModeHint.editingMode", { ns: "common", defaultValue: "正在编辑模式" });
-        const lineBreakTitle = i18next.t("editModeHint.lineBreak", { ns: "common", defaultValue: "换行" });
-        const exitEditTitle = i18next.t("editModeHint.exitEdit", { ns: "common", defaultValue: "退出编辑模式" });
-        const orText = i18next.t("editModeHint.or", { ns: "common", defaultValue: "或" });
-
-        const titleFontSize = 14;
-        const keyFontSize = 16;
-        const topCenterView = this.project.renderer.transformWorld2View(node.rectangle.topCenter);
-        const bottomCenterView = this.project.renderer.transformWorld2View(node.rectangle.bottomCenter);
-
-        // 顶部显示"正在编辑模式"
-        this.project.textRenderer.renderTextFromCenter(
-          editingModeTitle,
-          topCenterView.add(new Vector(0, -(keyFontSize + 20))),
-          titleFontSize,
-          titleColor,
-        );
-
-        // 底部第一行：换行提示
-        const lineBreakText = `${lineBreakKey} ${lineBreakTitle}`;
-        this.project.textRenderer.renderTextFromCenter(
-          lineBreakText,
-          bottomCenterView.add(new Vector(0, keyFontSize + 20)),
-          keyFontSize,
-          hintColor,
-        );
-
-        // 底部第二行：退出编辑模式提示
-        const exitEditText = `Esc ${orText} ${exitEditKey} ${exitEditTitle}`;
-        this.project.textRenderer.renderTextFromCenter(
-          exitEditText,
-          bottomCenterView.add(new Vector(0, keyFontSize * 2 + 30)),
-          keyFontSize,
-          hintColor,
-        );
-      }
-      return;
-    }
+    if (node.isEditing) return;
 
     const fontSize = node.getFontSize() * this.project.camera.currentScale;
 

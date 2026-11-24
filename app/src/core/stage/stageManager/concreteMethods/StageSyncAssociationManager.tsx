@@ -21,11 +21,13 @@ export class StageSyncAssociationManager {
   public createTwinsFromSelectedEntities(): void {
     const selectedEntities = this.project.stageManager.getSelectedEntities();
     const createdTwins: StageObject[] = [];
-    for (const entity of selectedEntities) {
-      if (entity instanceof TextNode) {
-        createdTwins.push(this.createTwinTextNode(entity));
+    this.project.historyManager.batch(() => {
+      for (const entity of selectedEntities) {
+        if (entity instanceof TextNode) {
+          createdTwins.push(this.createTwinTextNode(entity));
+        }
       }
-    }
+    });
 
     if (createdTwins.length === 0) return;
 

@@ -2514,9 +2514,6 @@ common:
     startEditTitle: 進入編輯模式
     doubleClick: 雙擊
     or: 或
-    editingMode: 正在編輯模式
-    lineBreak: 換行
-    exitEdit: 退出編輯模式
 
 projectOwnership:
   alreadyOpen: 已經切換到開啟的分頁。

@@ -116,7 +116,7 @@ export class SectionPackManager {
       if (!textNode.isSelected) {
         continue;
       }
-      this.targetTextNodeToSection(textNode, false, true);
+      this.targetTextNodeToSection(textNode, false, true, true);
     }
     this.project.historyManager.recordStep();
   }
@@ -325,16 +325,17 @@ export class SectionPackManager {
         this.project.sectionInOutManager.goInSections(section.children, []);
       }
       // 将section从舞台中删除
-      this.project.stageManager.deleteEntities([section]);
+      this.project.deleteManager.deleteEntities([section]);
     }
   }
 
   /** 将多个实体打包成一个section，并添加到舞台中 */
-  async packEntityToSection(addEntities: Entity[]): Promise<Section | undefined> {
+  packEntityToSection(addEntities: Entity[]): Section | undefined {
     if (addEntities.length === 0) {
       return;
     }
     addEntities = this.project.sectionMethods.shallowerNotSectionEntities(addEntities);
+    if (addEntities.length === 0) return;
     // 检测父亲section是否是等同
     const firstParent = addEntities[0].parentSection;
     if (addEntities.length > 1) {
@@ -353,9 +354,6 @@ export class SectionPackManager {
         return;
       }
     }
-    if (firstParent) {
-      this.project.stageManager.goOutSection(addEntities, firstParent);
-    }
     const section = Section.fromEntities(this.project, addEntities);
     let smartTitle = this.getSmartSectionTitle(addEntities);
     if (smartTitle.length > 10) {
@@ -365,10 +363,15 @@ export class SectionPackManager {
       smartTitle.length > 0
         ? smartTitle
         : this.project.stageUtils.replaceAutoNameTemplate(Settings.autoNamerSectionTemplate, section);
-    this.project.stageManager.add(section);
+    this.project.stageManager.add(section, true);
     if (firstParent) {
-      this.project.stageManager.goInSection([section], firstParent);
+      this.project.sectionInOutManager.attachEntityToSection(section, firstParent);
+      for (const entity of addEntities) {
+        this.project.sectionInOutManager.entityDropParent(entity);
+      }
     }
+    this.project.stageManager.updateReferences();
+    this.project.historyManager.recordStep();
 
     return section;
   }
@@ -427,7 +430,7 @@ export class SectionPackManager {
     // });
 
     // 将质点放入Section
-    this.project.stageManager.goInSection([topLeftPoint, bottomRightPoint], section);
+    this.project.sectionInOutManager.goInSection([topLeftPoint, bottomRightPoint], section);
 
     // 清空矩形框
     rectangleSelect.shutDown();
@@ -441,10 +444,10 @@ export class SectionPackManager {
   /**
    * 将选中的实体打包成Section
    */
-  async packSelectedEntitiesToSection(): Promise<Section | undefined> {
+  packSelectedEntitiesToSection(): Section | undefined {
     const selectedEntities = this.project.stageManager.getEntities().filter((entity) => entity.isSelected);
     if (selectedEntities.length > 0) {
-      const section = await this.packEntityToSection(selectedEntities);
+      const section = this.packEntityToSection(selectedEntities);
       SoundService.play.packEntityToSectionSoundFile();
       return section;
     }

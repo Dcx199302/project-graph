@@ -277,7 +277,6 @@ export const categories = {
       "forceHideTextNodeBorder",
       "textNodeInitBorderStyle",
       "showTreeDirectionHint",
-      "showEditModeHint",
       "textNodeEditModeOutlineOpacity",
       "colorPanelMouseEnterPreview",
       "defaultFontFamily",

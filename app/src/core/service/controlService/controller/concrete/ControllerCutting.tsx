@@ -206,24 +206,13 @@ export class ControllerCuttingClass extends ControllerClass {
     this.updateWarningObjectByCuttingLine();
     // 鼠标提示解除
     this.project.controller.setCursorName(CursorNameEnum.Default);
-    // 删除连线
-    for (const edge of this.warningAssociations) {
-      this.project.stageManager.deleteAssociation(edge);
-
-      // 2.0 先暂时关闭这个动画，它出bug了，会闪出一条很长的跨越屏幕的直线
-
-      // if (edge instanceof Edge) {
-      //   if (edge instanceof LineEdge) {
-      //     const effects = this.project.edgeRenderer.getCuttingEffects(edge);
-      //     console.log(effects);
-      //     this.project.effects.addEffects(effects);
-      //   }
-      // }
-    }
-    // 删除实体 （消耗性功能）
-    this.project.stageManager.deleteEntities(this.warningEntity);
-    // 删除产生的孤立质点（消耗性能）
-    this.clearIsolationPoint();
+    this.project.historyManager.batch(() => {
+      for (const edge of this.warningAssociations) {
+        this.project.stageManager.deleteAssociation(edge);
+      }
+      this.project.stageManager.deleteEntities(this.warningEntity);
+      this.clearIsolationPoint();
+    });
     // 特效
     this.addEffectByWarningEntity();
 

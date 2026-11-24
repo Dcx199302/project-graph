@@ -162,12 +162,17 @@ export class KeyboardOnlyGraphEngine {
       // 更新diffLocation
       NewTargetLocationSelector.onTabUp(selectConnectableEntities[0], this.virtualTargetLocation());
       // 创建一个新的节点
-      const newNodeUUID = await this.project.nodeAdder.addTextNodeByClick(this.virtualTargetLocation().clone(), []);
+      const newNodeUUID = await this.project.nodeAdder.addTextNodeByClick(
+        this.virtualTargetLocation().clone(),
+        [],
+        false,
+        false,
+      );
       const newNode = this.project.stageManager.getTextNodeByUUID(newNodeUUID);
       if (!newNode) return;
       // 连接到之前的节点
+      this.project.stageManager.connectMultipleEntities(selectConnectableEntities, newNode);
       for (const entity of selectConnectableEntities) {
-        this.project.stageManager.connectEntity(entity, newNode);
         this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(entity, newNode));
       }
       // 选择到新创建的节点

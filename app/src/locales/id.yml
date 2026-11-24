@@ -2577,9 +2577,6 @@ common:
     startEditTitle: Masuk Mode Edit
     doubleClick: Klik ganda
     or: atau
-    editingMode: Mode Edit
-    lineBreak: Baris Baru
-    exitEdit: Keluar Mode Edit
 
 projectOwnership:
   alreadyOpen: Beralih ke tab yang terbuka.

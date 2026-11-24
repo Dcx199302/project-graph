@@ -154,7 +154,7 @@ export class EntityMoveManager {
     if (targetSection === null) {
       // 代表想要走出当前section
       if (entity.parentSection) {
-        this.project.stageManager.goOutSection([entity], entity.parentSection);
+        this.project.sectionInOutManager.goOutSection([entity], entity.parentSection);
       }
     } else {
       this.project.sectionInOutManager.goInSection([entity], targetSection);
@@ -211,6 +211,7 @@ export class EntityMoveManager {
         this.jumpMoveEntityUtils(node, delta);
       }
     }
+    this.project.historyManager.recordStep();
   }
 
   /**

@@ -113,10 +113,10 @@ export async function autoChangeTextNodeToReferenceBlock(project: Project, textN
  * 自动将文本节点转换为 LaTeX 公式节点
  * 识别完整公式，替换节点时保留连线、分组和 UUID。
  */
-export async function autoChangeTextNodeToLatexNode(project: Project, textNode: TextNode) {
-  if (convertLatexNodes(project, [textNode]) === 0) return;
+export function autoChangeTextNodeToLatexNode(project: Project, textNode: TextNode): boolean {
+  if (convertLatexNodes(project, [textNode]) === 0) return false;
   project.stageManager.updateReferences();
-  project.historyManager.recordStep();
+  return true;
 }
 
 /**

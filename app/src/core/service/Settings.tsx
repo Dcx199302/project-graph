@@ -288,7 +288,6 @@ export const settingsSchema = z.object({
   newNodeScaleByCamera: z.boolean().default(false),
   newNodeScaleByCameraOffset: z.number().int().min(-5).max(5).default(-1),
   showKeyBindHint: z.boolean().default(true),
-  showEditModeHint: z.boolean().default(true),
   textNodeEditModeOutlineOpacity: z.number().min(0).max(1).default(0.5),
   pieMenuConfig: z
     .array(
@@ -928,7 +927,7 @@ export type Settings = z.infer<typeof settingsSchema>;
 
 const listeners: Partial<Record<string, ((value: any) => void)[]>> = {};
 
-const store = new LazyStore("settings.json");
+const store = new LazyStore(import.meta.env.DEV ? "settings.dev.json" : "settings.json");
 console.log("pre store.init");
 await store.init();
 console.log("post store.init");

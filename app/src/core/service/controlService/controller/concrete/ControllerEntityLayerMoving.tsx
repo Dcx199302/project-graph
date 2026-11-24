@@ -66,7 +66,7 @@ export class ControllerLayerMovingClass extends ControllerClass {
         }
       }
 
-      const newSection = this.project.sectionPackManager.targetTextNodeToSection(entity);
+      const newSection = this.project.sectionPackManager.targetTextNodeToSection(entity, false, false, true);
       if (newSection && selectedEntities.length > 0) {
         // 获取所有选中实体的外接矩形的中心点，以便计算移动距离
         const centerLocation = Rectangle.getBoundingRectangle(
@@ -80,7 +80,8 @@ export class ControllerLayerMovingClass extends ControllerClass {
         this.project.sectionInOutManager.goInSections(this.project.stageManager.getSelectedEntities(), [newSection]);
       }
 
-      return; // 这个return必须写
+      this.project.historyManager.recordStep();
+      return;
     }
 
     const targetSection = this.project.sectionMethods.getInnermostSectionByLocation(mouseLocation);
@@ -151,7 +152,7 @@ export class ControllerLayerMovingClass extends ControllerClass {
         if (!currentFatherSection) {
           continue;
         }
-        this.project.stageManager.goOutSection([entity], currentFatherSection);
+        this.project.sectionInOutManager.goOutSection([entity], currentFatherSection);
 
         // 特效
         setTimeout(() => {
@@ -183,6 +184,7 @@ export class ControllerLayerMovingClass extends ControllerClass {
 
     // 3 移动所有选中的实体 的位置
     this.project.entityMoveManager.moveSelectedEntities(delta);
+    this.project.historyManager.recordStep();
     // 播放跳跃音效
     SoundService.play.entityJumpSoundFile();
   };

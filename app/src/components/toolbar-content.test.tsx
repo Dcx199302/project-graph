@@ -480,7 +480,7 @@ it("keeps a hover panel open while crossing to it and closes it after leaving", 
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
 });
 
-it("shows an icon label below its trigger only after a sustained hover", async () => {
+it("shows a neutral icon label above its trigger only after a sustained hover", async () => {
   await render();
   const trigger = button("layout");
   const tooltip = () => container.querySelector('[data-slot="tooltip-content"]');
@@ -507,7 +507,9 @@ it("shows an icon label below its trigger only after a sustained hover", async (
     moveOverIcon();
     vi.advanceTimersByTime(800);
   });
-  expect(tooltip()?.getAttribute("data-side")).toBe("bottom");
+  expect(tooltip()?.getAttribute("data-side")).toBe("top");
+  expect(tooltip()?.classList.contains("bg-neutral-800")).toBe(true);
+  expect(tooltip()?.classList.contains("bg-primary/75")).toBe(false);
   expect(tooltip()?.hasAttribute("data-follow-cursor")).toBe(false);
   expect(tooltip()?.textContent).toContain("layout");
   await act(async () => leaveIcon());

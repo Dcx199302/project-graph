@@ -280,7 +280,7 @@ function CanvasTools({ project }: { project: Project }) {
     <CanvasOverlay.Provider value={areaRef.current}>
       <div
         className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center gap-1.5"
-        style={{ paddingTop: layout.tabBarHeight + 8 }}
+        style={{ paddingTop: Math.max(layout.tabBarHeight + 8, 40) }}
         ref={areaRef}
         onKeyDown={stopCanvasKeys}
         onKeyUp={stopCanvasKeys}
@@ -625,10 +625,10 @@ function CanvasTooltip({ children, label }: { children: React.ReactElement; labe
       <TooltipTrigger>{children}</TooltipTrigger>
       <TooltipContent
         followCursor={false}
-        side="bottom"
+        side="top"
         sideOffset={6}
         portalContainer={container}
-        className="z-40 whitespace-nowrap"
+        className="z-40 border-neutral-700 bg-neutral-800 whitespace-nowrap text-neutral-100"
       >
         {label}
       </TooltipContent>

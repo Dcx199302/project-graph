@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Vector } from "@graphif/data-structures";
+import { Rectangle } from "@graphif/shapes";
 import type { Project } from "@/core/Project";
 
 vi.mock("@/core/Project", () => ({ Project: class {}, service: () => (value: unknown) => value }));
@@ -10,6 +11,7 @@ vi.mock("@/core/service/Settings", () => ({
     scaleExponent: 0.2,
     scaleCameraByMouseLocation: true,
     cameraResetViewPaddingRate: 1,
+    cameraResetMaxScale: 5,
   },
 }));
 vi.mock("../service/feedbackService/SoundService", () => ({
@@ -17,6 +19,61 @@ vi.mock("../service/feedbackService/SoundService", () => ({
 }));
 vi.mock("@/core/stage/stageObject/abstract/StageEntity", () => ({ Entity: class {} }));
 import { Camera } from "./Camera";
+
+describe("fit view", () => {
+  it.each([1, 0.5])("keeps 15 px on all sides at UI scale %s and restores the previous view", (uiScale) => {
+    const w = 1000;
+    const h = 600;
+    const center = new Vector(400, -200);
+    const size = new Vector(w - 30 / uiScale, h - 30 / uiScale).multiply(2);
+    const camera = new Camera({
+      renderer: { w, h },
+      canvas: { viewToClientScale: () => new Vector(uiScale, uiScale) },
+      stageManager: { getCenter: () => center, getSize: () => size, getSelectedEntities: () => [] },
+    } as unknown as Project);
+    const original = new Vector(123, 456);
+    camera.location = original.clone();
+    camera.currentScale = 2;
+    camera.targetScale = 3;
+
+    camera.toggleFitView();
+    expect(camera.location).toEqual(center);
+    expect(((w - size.x * camera.currentScale) / 2) * uiScale).toBeCloseTo(15);
+    expect(((h - size.y * camera.currentScale) / 2) * uiScale).toBeCloseTo(15);
+
+    camera.toggleFitView();
+    expect(camera.location).toEqual(original);
+    expect(camera.currentScale).toBe(2);
+    expect(camera.targetScale).toBe(2);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(center);
+    expect(camera.currentScale).toBe(0.5);
+  });
+
+  it("fits a new selection after moving the view and records the latest position", () => {
+    const bounds = new Rectangle(new Vector(60, 90), new Vector(200, 100));
+    const selected = vi.fn(() => [{ collisionBox: { getRectangle: () => bounds } }]);
+    const camera = new Camera({
+      renderer: { w: 800, h: 400 },
+      canvas: { viewToClientScale: () => new Vector(1, 1) },
+      stageManager: { getSelectedEntities: selected },
+    } as unknown as Project);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(bounds.center);
+    expect(camera.currentScale).toBe(4);
+
+    camera.panByViewDelta(new Vector(60, 80));
+    const moved = camera.location.clone();
+    const nextBounds = new Rectangle(new Vector(-100, 30), new Vector(400, 100));
+    selected.mockReturnValue([{ collisionBox: { getRectangle: () => nextBounds } }]);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(nextBounds.center);
+    expect(camera.currentScale).toBe(2);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(moved);
+    expect(camera.currentScale).toBe(4);
+  });
+});
 
 describe("camera after direct gestures", () => {
   it("fits the project even when the canvas mounts after the first ten frames", () => {

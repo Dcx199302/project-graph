@@ -14,8 +14,10 @@ import { MediaNode } from "@/core/stage/stageObject/entity/MediaNode";
 import { ReferenceBlockNode } from "@/core/stage/stageObject/entity/ReferenceBlockNode";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { SvgNode } from "@/core/stage/stageObject/entity/SvgNode";
-import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
-import type { Direction } from "@/types/directions";
+import { TextNode, type TextNodeResizeAnchor } from "@/core/stage/stageObject/entity/TextNode";
+import { Direction } from "@/types/directions";
+import { resolveFontFamily } from "@/utils/font";
+import type { Color } from "@graphif/data-structures";
 import { colorInvert, Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { toast } from "sonner";
@@ -33,6 +35,12 @@ import {
 @service("controllerUtils")
 export class ControllerUtils {
   private readonly autoComplete: AutoCompleteManager;
+  private edgeEditor?: {
+    uuid: string;
+    element: HTMLTextAreaElement;
+    resize: () => void;
+  };
+
   constructor(private readonly project: Project) {
     this.autoComplete = new AutoCompleteManager(project);
   }
@@ -49,7 +57,12 @@ export class ControllerUtils {
    * 编辑节点
    * @param clickedNode
    */
-  editTextNode(clickedNode: TextNode, selectAll = true) {
+  editTextNode(
+    clickedNode: TextNode,
+    selectAll = true,
+    autoFormatTree = Settings.textNodeAutoFormatTreeWhenInput,
+    resizeAnchor?: TextNodeResizeAnchor,
+  ) {
     this.project.controller.isCameraLocked = true;
     // 停止摄像机漂移
     this.project.camera.stopImmediately();
@@ -77,8 +90,16 @@ export class ControllerUtils {
     const syncTextareaPositionWithNode = (ele: HTMLTextAreaElement) => {
       const currentRectView = this.project.renderer.transformWorld2View(clickedNode.collisionBox.getRectangle());
       const currentRectClient = this.viewRectangleToClient(currentRectView);
-      ele.style.left = `${currentRectClient.left.toFixed(2)}px`;
-      ele.style.top = `${currentRectClient.top.toFixed(2)}px`;
+      if (resizeAnchor === "right") {
+        ele.style.right = `${(window.innerWidth - currentRectClient.right).toFixed(2)}px`;
+      } else {
+        ele.style.left = `${currentRectClient.left.toFixed(2)}px`;
+      }
+      if (resizeAnchor === "bottom") {
+        ele.style.bottom = `${(window.innerHeight - currentRectClient.bottom).toFixed(2)}px`;
+      } else {
+        ele.style.top = `${currentRectClient.top.toFixed(2)}px`;
+      }
       ele.style.minWidth = `${currentRectClient.width.toFixed(2)}px`;
       ele.style.minHeight = `${currentRectClient.height.toFixed(2)}px`;
       ele.style.height = `${currentRectClient.height.toFixed(2)}px`;
@@ -87,11 +108,13 @@ export class ControllerUtils {
       }
     };
     const relayoutTreeWhileEditing = () => {
+      if (this.project.autoLayout.getPreservedLayout(clickedNode)) return;
       const rootNodes = this.project.graphMethods.getRoots(clickedNode, true);
       if (rootNodes.length !== 1) {
         return;
       }
       const rootNode = rootNodes[0];
+      if (this.project.autoLayout.hasPreservedLayoutInTree(rootNode)) return;
       const validationResult = this.project.graphMethods.validateTreeStructure(rootNode, true);
       if (!validationResult.isValid) {
         return;
@@ -107,18 +130,18 @@ export class ControllerUtils {
     this.project.inputElement
       .textarea(
         clickedNode.text,
-        async (text, ele) => {
+        (text, ele) => {
           const currentRequestId = latexPreview.nextRequestId();
           if (lastAutoCompleteTabId) {
             void TabWorkspace.close(lastAutoCompleteTabId);
           }
           // 自动补全逻辑
-          await this.autoComplete.handle(text, clickedNode, ele, (value) => {
+          this.autoComplete.handle(text, clickedNode, ele, (value) => {
             lastAutoCompleteTabId = value;
           });
           // onChange
-          clickedNode?.rename(text);
-          if (Settings.textNodeAutoFormatTreeWhenInput) {
+          clickedNode.rename(text, resizeAnchor);
+          if (autoFormatTree) {
             relayoutTreeWhileEditing();
           }
           syncTextareaPositionWithNode(ele);
@@ -155,8 +178,10 @@ export class ControllerUtils {
           overflow: "hidden",
           whiteSpace: "pre-wrap",
           wordBreak: "break-all",
-          left: `${rectClient.left.toFixed(2)}px`,
-          top: `${rectClient.top.toFixed(2)}px`,
+          left: resizeAnchor === "right" ? undefined : `${rectClient.left.toFixed(2)}px`,
+          right: resizeAnchor === "right" ? `${(window.innerWidth - rectClient.right).toFixed(2)}px` : undefined,
+          top: resizeAnchor === "bottom" ? undefined : `${rectClient.top.toFixed(2)}px`,
+          bottom: resizeAnchor === "bottom" ? `${(window.innerHeight - rectClient.bottom).toFixed(2)}px` : undefined,
           // ====
           // auto 模式：初始给节点宽度+8作为起始值，adjustSize 会用镜像 div 立即修正
           // manual 模式：宽度固定为节点当前宽度，不扩展
@@ -178,8 +203,7 @@ export class ControllerUtils {
         },
         selectAll,
         Settings.textNodeExitEditModeOnWheel,
-        // fixedWidth：manual 模式宽度固定为节点当前视图宽度，auto 模式不传（自动扩展）
-        clickedNode.sizeAdjust === "manual" ? rectClient.width : undefined,
+        { fixedWidth: clickedNode.sizeAdjust === "manual" ? rectClient.width : undefined },
       )
       .then(async () => {
         void TabWorkspace.close(lastAutoCompleteTabId);
@@ -197,16 +221,38 @@ export class ControllerUtils {
       });
   }
 
-  editEdgeText(edge: Edge | MultiTargetUndirectedEdge, selectAll = true): Promise<void> {
+  positionEdgeEditor(uuid: string, center: Vector, size: number, color: Color): boolean {
+    const editor = this.edgeEditor;
+    if (editor?.uuid !== uuid) return false;
+
+    if (Settings.textIntegerLocationAndSizeRender) {
+      center = center.toInteger();
+      size = Math.round(size);
+    }
+    const location = this.project.canvas.viewToClient(center);
+    const { x: clientScale } = this.project.canvas.viewToClientScale();
+    const fontSize = `${Math.max(1, size * clientScale).toFixed(2)}px`;
+    const { style } = editor.element;
+    style.left = `${location.x.toFixed(2)}px`;
+    style.top = `${location.y.toFixed(2)}px`;
+    style.color = color.toString();
+    if (style.fontSize !== fontSize) {
+      style.fontSize = fontSize;
+      editor.resize();
+    }
+    style.opacity = "1";
+    return true;
+  }
+
+  async editEdgeText(edge: Edge | MultiTargetUndirectedEdge, selectAll = true): Promise<void> {
+    if (this.edgeEditor) return;
+    const originalText = edge.text;
     this.project.controller.isCameraLocked = true;
+    this.project.controller.resetCountdownTimer();
     this.project.camera.stopImmediately();
-    const textAreaLocation = this.project.renderer
-      .transformWorld2View(edge.textRectangle.location)
-      .add(Vector.same(Renderer.NODE_PADDING).multiply(this.project.camera.currentScale));
-    const textAreaClientLocation = this.project.canvas.viewToClient(textAreaLocation);
-    const clientScale = this.project.canvas.viewToClientScale();
-    return this.project.inputElement
-      .textarea(
+    this.project.loop();
+    try {
+      await this.project.inputElement.textarea(
         edge.text,
         (text) => {
           edge.rename(text);
@@ -216,21 +262,42 @@ export class ControllerUtils {
           resize: "none",
           boxSizing: "border-box",
           overflow: "hidden",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          left: `${textAreaClientLocation.x.toFixed(2)}px`,
-          top: `${textAreaClientLocation.y.toFixed(2)}px`,
-          fontSize: `${Renderer.FONT_SIZE * this.project.camera.currentScale * clientScale.x}px`,
+          whiteSpace: "pre",
+          textAlign: "center",
+          lineHeight: "1.2",
+          transform: "translate(-50%, -50%)",
+          minWidth: "1em",
+          padding: "0 0.15em",
+          cursor: "text",
+          userSelect: "text",
+          fontFamily: resolveFontFamily(),
+          opacity: "0",
           backgroundColor: this.project.stageStyleManager.currentStyle.Background.toString(),
-          color: this.project.stageStyleManager.currentStyle.StageObjectBorder.toString(),
-          outline: "solid 1px rgba(255,255,255,0.1)",
+          border: "none",
+          outline: "none",
         },
         selectAll,
-      )
-      .then(() => {
-        this.project.controller.isCameraLocked = false;
+        false,
+        {
+          edgeLabel: (element, resize) => {
+            this.edgeEditor = { uuid: edge.uuid, element, resize };
+            const center = this.project.renderer.transformWorld2View(edge.textRectangle.center);
+            const fontSize =
+              "textFontSize" in edge && typeof edge.textFontSize === "number" ? edge.textFontSize : Renderer.FONT_SIZE;
+            const color =
+              edge.color.a === 0 ? this.project.stageStyleManager.currentStyle.StageObjectBorder : edge.color;
+            this.positionEdgeEditor(edge.uuid, center, fontSize * this.project.camera.currentScale, color);
+          },
+        },
+      );
+      if (edge.text !== originalText) {
         this.project.historyManager.recordStep();
-      });
+      }
+    } finally {
+      this.edgeEditor = undefined;
+      this.project.controller.isCameraLocked = false;
+      this.project.controller.resetCountdownTimer();
+    }
   }
 
   /**
@@ -273,14 +340,15 @@ export class ControllerUtils {
   }
 
   addTextNodeFromCurrentSelectedNode(direction: Direction, selectCurrent = false) {
-    this.project.nodeAdder.addTextNodeFromCurrentSelectedNode(direction, [], selectCurrent).then((uuid) => {
+    const resizeAnchor = direction === Direction.Left ? "right" : direction === Direction.Up ? "bottom" : undefined;
+    this.project.nodeAdder.addTextNodeFromCurrentSelectedNode(direction, selectCurrent).then((uuid) => {
       setTimeout(() => {
-        this.textNodeInEditModeByUUID(uuid);
+        this.textNodeInEditModeByUUID(uuid, resizeAnchor);
       });
     });
   }
 
-  textNodeInEditModeByUUID(uuid: string) {
+  textNodeInEditModeByUUID(uuid: string, resizeAnchor?: TextNodeResizeAnchor) {
     const createNode = this.project.stageManager.getTextNodeByUUID(uuid);
     if (createNode === null) {
       // 说明 创建了立刻删掉了
@@ -288,7 +356,7 @@ export class ControllerUtils {
     }
     // 整特效
     this.project.effects.addEffect(EntityCreateFlashEffect.fromCreateEntity(createNode));
-    this.editTextNode(createNode);
+    this.editTextNode(createNode, true, undefined, resizeAnchor);
   }
 
   /**

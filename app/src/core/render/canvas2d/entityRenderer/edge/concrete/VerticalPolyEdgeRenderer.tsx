@@ -168,6 +168,8 @@ export class VerticalPolyEdgeRenderer extends EdgeRendererClass {
   public renderNormalState(edge: LineEdge): void {
     // this.renderTest(edge);
     // 直线绘制
+    const midPoint = edge.bodyLine.midPoint();
+    this.project.edgeRenderer.renderLabel(edge, midPoint, Renderer.FONT_SIZE, Color.White, "singleLine");
     if (edge.text.trim() === "") {
       const verticalDirection = this.getVerticalDirection(edge);
       if (verticalDirection.x === 0) {
@@ -296,14 +298,8 @@ export class VerticalPolyEdgeRenderer extends EdgeRendererClass {
       // );
     } else {
       // 有文字的边
-      const midPoint = edge.bodyLine.midPoint();
       const startHalf = new Line(edge.bodyLine.start, midPoint);
       const endHalf = new Line(midPoint, edge.bodyLine.end);
-      this.project.textRenderer.renderTextFromCenter(
-        edge.text,
-        this.project.renderer.transformWorld2View(midPoint),
-        Renderer.FONT_SIZE * this.project.camera.currentScale,
-      );
       const edgeTextRectangle = edge.textRectangle;
 
       this.project.curveRenderer.renderSolidLine(
@@ -341,6 +337,7 @@ export class VerticalPolyEdgeRenderer extends EdgeRendererClass {
   }
   public renderShiftingState(edge: LineEdge): void {
     const shiftingMidPoint = edge.shiftingMidPoint;
+    this.project.edgeRenderer.renderLabel(edge, shiftingMidPoint, Renderer.FONT_SIZE, Color.White, "singleLine");
     // 从source.Center到shiftingMidPoint的线
     const startLine = new Line(edge.source.collisionBox.getRectangle().center, shiftingMidPoint);
     const endLine = new Line(shiftingMidPoint, edge.target.collisionBox.getRectangle().center);
@@ -363,11 +360,6 @@ export class VerticalPolyEdgeRenderer extends EdgeRendererClass {
       );
     } else {
       // 有文字的边
-      this.project.textRenderer.renderTextFromCenter(
-        edge.text,
-        this.project.renderer.transformWorld2View(shiftingMidPoint),
-        Renderer.FONT_SIZE * this.project.camera.currentScale,
-      );
       const edgeTextRectangle = edge.textRectangle;
       const start2MidPoint = edgeTextRectangle.getLineIntersectionPoint(startLine);
       const mid2EndPoint = edgeTextRectangle.getLineIntersectionPoint(endLine);
@@ -437,6 +429,13 @@ export class VerticalPolyEdgeRenderer extends EdgeRendererClass {
         );
       }
     }
+    this.project.edgeRenderer.renderLabel(
+      edge,
+      edge.textRectangle.center,
+      Renderer.FONT_SIZE,
+      Color.White,
+      "singleLine",
+    );
   }
   public getNormalStageSvg(edge: LineEdge): React.ReactNode {
     let textNode: React.ReactNode = <></>;

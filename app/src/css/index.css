@@ -152,7 +152,7 @@ html[data-theme-transition="ripple"] *::after {
     width: 1.5em;
     height: 1.5em;
   } */
-  [data-radix-popper-content-wrapper]:has([data-slot="tooltip-content"]) {
+  [data-radix-popper-content-wrapper]:has(> [data-slot="tooltip-content"][data-follow-cursor]) {
     transform: none !important;
   }
   /* AI 消息的 markdown 正文：长路径、长 URL、长 hash 没有断词机会，会顶开气泡导致右侧被裁 */

@@ -14,9 +14,11 @@ vi.mock("@/core/render/canvas2d/renderer", () => ({
   Renderer: { FONT_SIZE: 24, NODE_PADDING: 10 },
 }));
 vi.mock("@/core/service/Settings", () => ({ Settings: { watch: vi.fn() } }));
+vi.mock("@/core/service/Telemetry", () => ({ Telemetry: {} }));
 vi.mock("@/core/service/feedbackService/SoundService", () => ({ SoundService: {} }));
+vi.mock("@/core/stage/stageObject/entity/ReferenceBlockNode", () => ({ ReferenceBlockNode: class {} }));
 vi.mock("@/utils/font", () => ({
-  getMultiLineTextSize: () => new Vector(20, 20),
+  getMultiLineTextSize: (text: string) => new Vector(Math.max(20, text.length * 10), text.split("\n").length * 20),
   getTextSize: () => new Vector(20, 20),
 }));
 vi.mock("sonner", () => ({ toast: vi.fn() }));
@@ -26,9 +28,18 @@ import { ConnectableEntity } from "@/core/stage/stageObject/abstract/Connectable
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { LineEdge } from "@/core/stage/stageObject/association/LineEdge";
+import { MultiTargetUndirectedEdge } from "@/core/stage/stageObject/association/MutiTargetUndirectedEdge";
+import { ImageNode } from "@/core/stage/stageObject/entity/ImageNode";
 import { PenStroke } from "@/core/stage/stageObject/entity/PenStroke";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
+import type { Project } from "@/core/Project";
+import { LayoutManager } from "./concreteMethods/LayoutManager";
+import { NodeAdder } from "./concreteMethods/StageNodeAdder";
+import { DeleteManager } from "./concreteMethods/StageDeleteManager";
+import { SectionInOutManager } from "./concreteMethods/StageSectionInOutManager";
+import { SectionPackManager } from "./concreteMethods/StageSectionPackManager";
+import { Direction } from "@/types/directions";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -71,6 +82,230 @@ function section(uuid: string, children: Entity[]): Section {
 function lineEdge(associationList: ConnectableEntity[], uuid = crypto.randomUUID()): LineEdge {
   return new LineEdge({} as never, { associationList, uuid });
 }
+
+describe("StageManager.selectAll", () => {
+  it("toggles between the union of the selected nodes' connected groups and the entire canvas", () => {
+    const a = textNode("a");
+    const b = textNode("b");
+    const c = textNode("c");
+    const d = textNode("d");
+    const e = textNode("e");
+    const f = textNode("f");
+    const isolated = textNode("isolated");
+    const manager = createStageManager([
+      a,
+      b,
+      c,
+      d,
+      e,
+      f,
+      isolated,
+      lineEdge([b, a]),
+      lineEdge([b, c]),
+      lineEdge([c, a]),
+      new MultiTargetUndirectedEdge({} as Project, { associationList: [d, e, f] }),
+    ]);
+    a.isSelected = d.isSelected = true;
+    const related = [a, b, c, d, e, f];
+
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual(related);
+    expect(manager.selectAll()).toBe("global");
+    expect(manager.getStageObjects().every((object) => object.isSelected)).toBe(true);
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual(related);
+    expect(manager.selectAll()).toBe("global");
+  });
+
+  it("clears the saved group when the selection is cleared", () => {
+    const a = textNode("a");
+    const b = textNode("b");
+    const c = textNode("c");
+    const d = textNode("d");
+    const manager = createStageManager([a, b, c, d, lineEdge([a, b]), lineEdge([c, d])]);
+    a.isSelected = true;
+    manager.selectAll();
+
+    manager.clearSelectAll();
+    a.isSelected = b.isSelected = true;
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.selectAll()).toBe("global");
+
+    manager.clearSelectAll();
+    expect(manager.getSelectedStageObjects()).toEqual([]);
+    expect(manager.selectAll()).toBe("global");
+    expect(manager.selectAll()).toBe("global");
+
+    manager.clearSelectAll();
+    d.isSelected = true;
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([c, d]);
+  });
+
+  it("selects the entire canvas when a selected node has no other connected nodes", () => {
+    const isolated = textNode("isolated");
+    const unrelated = textNode("unrelated");
+    const loop = lineEdge([isolated, isolated]);
+    const manager = createStageManager([isolated, unrelated, loop]);
+    isolated.isSelected = true;
+
+    expect(manager.selectAll()).toBe("global");
+    expect(manager.getSelectedStageObjects()).toEqual([isolated, unrelated, loop]);
+    expect(manager.selectAll()).toBe("global");
+  });
+});
+
+it("summarizes the selected object types and excludes background images", () => {
+  const text = textNode("text");
+  const group = section("group", []);
+  const edge = lineEdge([text, group]);
+  const background = Object.assign(Object.create(ImageNode.prototype), { isBackground: true, isSelected: true });
+  const manager = createStageManager([text, group, edge, background]);
+
+  expect(manager.getSelectionSummary()).toBe("0:0:0:0:0");
+  text.isSelected = true;
+  edge.isSelected = true;
+  expect(manager.getSelectionSummary()).toBe("1:1:1:0:1");
+  text.isSelected = false;
+  group.isSelected = true;
+  expect(manager.getSelectionSummary()).toBe("1:1:0:1:1");
+});
+
+it.each(["horizontal", "vertical"] as const)("arranges nodes on the %s axis around the first selected node", (axis) => {
+  const vertical = axis === "vertical";
+  const anchor = textNode("anchor", 100, 100);
+  const before = textNode("before", vertical ? 240 : -200, vertical ? -200 : 240);
+  const after = textNode("after", 480, 360);
+  const untouched = textNode("untouched", 40, 40);
+  (before.collisionBox.shapes[0] as Rectangle).size = new Vector(60, 40);
+  (after.collisionBox.shapes[0] as Rectangle).size = new Vector(130, 120);
+  const project = {
+    stage: [before, after, untouched, anchor],
+    sectionMoveDepth: 0,
+    historyManager: { recordStep: vi.fn() },
+  } as unknown as Project;
+  for (const node of [before, after, untouched, anchor]) Object.assign(node, { project });
+  project.stageManager = new StageManager(project);
+  const layout = new LayoutManager(project);
+  anchor.isSelected = true;
+  expect(layout.canArrangeSelectedLine()).toBe(false);
+  before.isSelected = true;
+  after.isSelected = true;
+  anchor.isSelected = true;
+  expect(layout.canArrangeSelectedLine()).toBe(true);
+
+  layout.arrangeSelectedLine(axis);
+
+  expect(anchor.rectangle.location).toEqual(new Vector(100, 100));
+  expect(before.rectangle.location).toEqual(vertical ? new Vector(120, 40) : new Vector(20, 120));
+  expect(after.rectangle.location).toEqual(vertical ? new Vector(85, 200) : new Vector(220, 80));
+  expect(untouched.rectangle.location).toEqual(new Vector(40, 40));
+  layout.arrangeSelectedLine(axis);
+  expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+});
+
+it.each([
+  [Direction.Left, "right"],
+  [Direction.Up, "bottom"],
+  [Direction.Right, undefined],
+  [Direction.Down, undefined],
+] as const)(
+  "places a newly named node clear of its source and keeps the gap while editing in direction %s",
+  async (direction, resizeAnchor) => {
+    const source = textNode("source", 200, 200);
+    source.isSelected = true;
+    const add = vi.fn();
+    const project = {
+      stageManager: { getSelectedEntities: () => [source], getTextNodes: () => [source], add },
+      sectionInOutManager: { goInSections: vi.fn() },
+      stageUtils: { replaceAutoNameTemplate: () => "A deliberately wide label" },
+      syncAssociationManager: { syncFrom: vi.fn() },
+      historyManager: { recordStep: vi.fn() },
+    } as unknown as Project;
+    const uuid = await new NodeAdder(project).addTextNodeFromCurrentSelectedNode(direction);
+    const node: TextNode = add.mock.calls[0][0];
+    const gap = () => {
+      switch (direction) {
+        case Direction.Left:
+          return source.rectangle.left - node.rectangle.right;
+        case Direction.Right:
+          return node.rectangle.left - source.rectangle.right;
+        case Direction.Up:
+          return source.rectangle.top - node.rectangle.bottom;
+        case Direction.Down:
+          return node.rectangle.top - source.rectangle.bottom;
+      }
+    };
+    expect(node.uuid).toBe(uuid);
+    expect(node.rectangle.width).toBeGreaterThan(source.rectangle.width);
+    expect(gap()).toBe(48);
+    expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+
+    node.rename("An even wider title than the original one\nwith a second line", resizeAnchor);
+    expect(gap()).toBe(48);
+  },
+);
+
+it("adjusts selected-node spacing around the selection center and stops at the minimum gap", () => {
+  const left = textNode("left");
+  const right = textNode("right", 125);
+  const untouched = textNode("untouched", 250);
+  (right.collisionBox.shapes[0] as Rectangle).size.x = 60;
+  left.isSelected = right.isSelected = true;
+  const project = {
+    stage: [left, right, untouched],
+    sectionMoveDepth: 0,
+    historyManager: { recordStep: vi.fn() },
+  } as unknown as Project;
+  for (const node of [left, right, untouched]) Object.assign(node, { project });
+  project.stageManager = new StageManager(project);
+  const layout = new LayoutManager(project);
+  const gap = () => right.rectangle.left - left.rectangle.right;
+  const center = () => (left.rectangle.left + right.rectangle.right) / 2;
+  const originalCenter = center();
+
+  layout.adjustSelectedNodeSpacing(true);
+  expect(gap()).toBeGreaterThan(25);
+  expect(center()).toBeCloseTo(originalCenter);
+  expect(left.rectangle.width).toBe(100);
+  expect(right.rectangle.width).toBe(60);
+  expect(untouched.rectangle.left).toBe(250);
+  layout.adjustSelectedNodeSpacing(false);
+  expect(gap()).toBeCloseTo(25);
+  layout.adjustSelectedNodeSpacing(false);
+  layout.adjustSelectedNodeSpacing(false);
+  expect(gap()).toBeCloseTo(12);
+  expect(center()).toBeCloseTo(originalCenter);
+  expect(layout.canAdjustSelectedNodeSpacing(false)).toBe(false);
+  layout.adjustSelectedNodeSpacing(false);
+  expect(project.historyManager.recordStep).toHaveBeenCalledTimes(4);
+});
+
+it("ungroups a collapsed nested section without deleting its nodes or their connection", () => {
+  const first = textNode("first");
+  const second = textNode("second");
+  const connection = lineEdge([first, second]);
+  const group = section("group", [first, second]);
+  const parent = section("parent", [group]);
+  group.isCollapsed = true;
+  group.isSelected = true;
+  const project = {
+    stage: [parent, group, first, second, connection],
+    syncAssociationManager: { onStageObjectDeleted: vi.fn() },
+    historyManager: { recordStep: vi.fn() },
+  } as unknown as Project;
+  project.stageManager = new StageManager(project);
+  project.deleteManager = new DeleteManager(project);
+  project.sectionInOutManager = new SectionInOutManager(project);
+  project.stageManager.updateReferences();
+
+  new SectionPackManager(project).ungroupSection(group);
+
+  expect(project.stage).toEqual([parent, first, second, connection]);
+  expect(parent.children).toEqual([first, second]);
+  expect(project.stageManager.getSelectedEntities()).toEqual([first, second]);
+  expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+});
 
 describe("StageManager.updateReferences", () => {
   it("replaces unknown edge endpoints with the real entities on stage", () => {

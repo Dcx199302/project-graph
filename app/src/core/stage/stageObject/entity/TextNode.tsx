@@ -12,6 +12,8 @@ import { id, passExtraAtArg1, passObject, serializable } from "@graphif/serializ
 import { Rectangle } from "@graphif/shapes";
 import type { Value } from "platejs";
 
+export type TextNodeResizeAnchor = "right" | "bottom";
+
 /**
  *
  * 文字节点类
@@ -70,18 +72,6 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
   public borderStyle: "solid" | "dashed" | "none" = "solid";
 
   /**
-   * 节点是否被选中
-   */
-  _isSelected: boolean = false;
-
-  /**
-   * 获取节点的选中状态
-   */
-  public get isSelected() {
-    return this._isSelected;
-  }
-
-  /**
    * 只读，获取节点的矩形
    * 若要修改节点的矩形，请使用 moveTo等 方法
    */
@@ -91,10 +81,6 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
 
   public get geometryCenter() {
     return this.rectangle.location.clone().add(this.rectangle.size.clone().multiply(0.5));
-  }
-
-  public set isSelected(value: boolean) {
-    this._isSelected = value;
   }
 
   /**
@@ -324,7 +310,8 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
   //   );
   // }
 
-  rename(text: string) {
+  rename(text: string, resizeAnchor?: TextNodeResizeAnchor) {
+    const beforeResize = resizeAnchor ? this.rectangle : undefined;
     this.text = text;
     // if (this.text.length < TextNode.enableResizeCharCount) {
     //   this.adjustSizeByText();
@@ -333,6 +320,14 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
       this.adjustSizeByText();
     } else if (this.sizeAdjust === "manual") {
       this.adjustHeightByText();
+    }
+    if (beforeResize) {
+      const resized = this.rectangle;
+      const offset =
+        resizeAnchor === "right"
+          ? new Vector(beforeResize.right - resized.right, 0)
+          : new Vector(0, beforeResize.bottom - resized.bottom);
+      if (!offset.isZero()) this.moveTo(resized.location.add(offset));
     }
     // 向孪生兄弟同步 text（_isSyncing 为 true 时说明自己正在被同步写入，跳过避免循环）
     if (!this._isSyncing) {

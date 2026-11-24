@@ -4,8 +4,8 @@ export interface ControllerInputHandlers {
   down(event: PointerEvent): void;
   move(event: PointerEvent): void;
   up(event: PointerEvent): void;
+  middleClick(event: PointerEvent): boolean;
   doubleClick(event: PointerEvent): void;
-  mouseChord(): void;
   wheel(event: WheelEvent): void;
   keydown(event: KeyboardEvent): void;
   keyup(event: KeyboardEvent): void;
@@ -21,8 +21,6 @@ export class ControllerInput {
   private lastClick: { button: number; location: Vector; time: number } | null = null;
   private touchMode: "idle" | "single" | "multi" = "idle";
   private location = Vector.getZero();
-  private chordPointerId: number | null = null;
-  private suppressContextMenu = false;
 
   constructor(
     private readonly element: HTMLCanvasElement,
@@ -74,6 +72,10 @@ export class ControllerInput {
       this.lastClick = null;
       return;
     }
+    if (event.button === 1 && event.buttons === 0 && this.handlers.middleClick(event)) {
+      this.lastClick = null;
+      return;
+    }
     const time = event.timeStamp;
     if (
       this.lastClick &&
@@ -89,10 +91,7 @@ export class ControllerInput {
   }
 
   private pointerdown = (event: PointerEvent) => {
-    if (event.pointerType === "touch") return;
-    if (this.press && this.press.id !== event.pointerId) return;
-    if (this.chordPointerId === null) this.suppressContextMenu = false;
-    if (this.consumeMouseChord(event)) return;
+    if (event.pointerType === "touch" || this.press) return;
     this.element.setPointerCapture(event.pointerId);
     this.down(this.viewEvent(event));
   };
@@ -100,17 +99,27 @@ export class ControllerInput {
   private pointermove = (event: PointerEvent) => {
     if (event.pointerType === "touch") return;
     if (this.press && this.press.id !== event.pointerId) return;
-    if (this.consumeMouseChord(event)) return;
-    if (this.press && event.buttons === 0) {
-      this.cancel();
-      return;
+    if (this.press) {
+      if (event.buttons === 0) {
+        this.cancel();
+        return;
+      }
+      if (event.pointerType === "mouse") {
+        const buttonMask = [1, 4, 2, 8, 16][this.press.button];
+        if (buttonMask && (event.buttons & buttonMask) === 0) {
+          // 多键按下时，首个按键的松开可能由 pointermove 上报。
+          if (event.button === this.press.button) this.pointerup(event);
+          else this.cancel();
+          return;
+        }
+        if ((event.buttons & (event.buttons - 1)) !== 0) this.press.dragged = true;
+      }
     }
     this.move(this.viewEvent(event));
   };
 
   private pointerup = (event: PointerEvent) => {
     if (event.pointerType === "touch") return;
-    if (this.consumeMouseChord(event)) return;
     if (!this.press) return;
     if (this.press && this.press.id !== event.pointerId) return;
     if (this.press.button !== event.button) {
@@ -122,33 +131,8 @@ export class ControllerInput {
   };
 
   private pointercancel = (event: PointerEvent) => {
-    if (this.press?.id === event.pointerId || this.chordPointerId === event.pointerId) this.cancel();
+    if (this.press?.id === event.pointerId) this.cancel();
   };
-
-  private consumeMouseChord(event: PointerEvent): boolean {
-    if (event.pointerType !== "mouse") return false;
-    if (this.chordPointerId !== null) {
-      if (event.pointerId === this.chordPointerId && event.buttons === 0) {
-        this.chordPointerId = null;
-        if (this.element.hasPointerCapture(event.pointerId)) this.element.releasePointerCapture(event.pointerId);
-      }
-      event.preventDefault();
-      return true;
-    }
-    // 第二个鼠标键通过 pointermove 上报；只接受从当前画布开始的按键组合。
-    if ((event.buttons & 3) !== 3 || (!this.press && event.type !== "pointerdown")) return false;
-    const viewEvent = this.viewEvent(event);
-    this.location = new Vector(viewEvent.clientX, viewEvent.clientY);
-    this.press = null;
-    this.lastClick = null;
-    this.chordPointerId = event.pointerId;
-    this.suppressContextMenu = true;
-    this.element.setPointerCapture(event.pointerId);
-    this.handlers.cancel(this.location);
-    this.handlers.mouseChord();
-    event.preventDefault();
-    return true;
-  }
 
   private touchPointer(touch: Touch, type: string): PointerEvent {
     return this.viewEvent(
@@ -192,12 +176,11 @@ export class ControllerInput {
   };
 
   public cancel = () => {
-    const pointerId = this.press?.id ?? this.chordPointerId;
+    const pointerId = this.press?.id;
     this.press = null;
-    this.chordPointerId = null;
     this.lastClick = null;
     this.touchMode = "idle";
-    if (pointerId !== null && pointerId !== undefined && this.element.hasPointerCapture(pointerId))
+    if (pointerId !== undefined && this.element.hasPointerCapture(pointerId))
       this.element.releasePointerCapture(pointerId);
     this.handlers.cancel(this.location);
   };
@@ -208,10 +191,8 @@ export class ControllerInput {
     pointerup: this.pointerup as EventListener,
     pointercancel: this.pointercancel as EventListener,
     lostpointercapture: this.pointercancel as EventListener,
-    contextmenu: (event) => {
-      if (!this.suppressContextMenu) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
+    mousedown: (event) => {
+      if ((event as MouseEvent).button === 1) event.preventDefault();
     },
     touchstart: this.touchstart as EventListener,
     touchmove: this.touchmove as EventListener,

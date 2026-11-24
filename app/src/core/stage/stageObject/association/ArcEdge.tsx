@@ -403,6 +403,8 @@ export class ArcEdge extends Edge {
       arrowType = "default",
       offset = 0,
       textPosition = 0.5,
+      graphLayout = undefined as Edge["graphLayout"],
+      fishboneLayout = undefined as boolean | undefined,
     },
     public unknown = false,
   ) {
@@ -417,6 +419,7 @@ export class ArcEdge extends Edge {
     this.arrowType = arrowType;
     this.offset = offset;
     this.textPosition = textPosition;
+    this.graphLayout = graphLayout ?? (fishboneLayout === true ? "fishbone" : undefined);
 
     this.adjustSizeByText();
   }

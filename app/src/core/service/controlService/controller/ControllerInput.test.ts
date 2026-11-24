@@ -35,8 +35,8 @@ function setup() {
     down: vi.fn(),
     move: vi.fn(),
     up: vi.fn(),
+    middleClick: vi.fn(() => true),
     doubleClick: vi.fn(),
-    mouseChord: vi.fn(),
     wheel: vi.fn(),
     keydown: vi.fn(),
     keyup: vi.fn(),
@@ -59,73 +59,43 @@ function setup() {
 
 describe("unified canvas input", () => {
   it.each([
-    [0, 1, 2, 1],
     [0, 1, 2, 2],
     [2, 2, 0, 1],
-    [2, 2, 0, 2],
-  ])(
-    "consumes a left/right chord (first %i, buttons %i, second %i, remaining %i)",
-    (first, buttons, second, remaining) => {
-      const { input, pointer, handlers, captures, element } = setup();
-      pointer("pointerdown", { button: first, buttons });
-      pointer("pointermove", { button: second, buttons: 3 });
-      expect(handlers.cancel).toHaveBeenCalledOnce();
-      expect(handlers.mouseChord).toHaveBeenCalledOnce();
-      expect(handlers.down).toHaveBeenCalledTimes(1);
-      expect(captures.has(1)).toBe(true);
-      pointer("pointermove", { button: -1, buttons: 3, clientX: 60 });
-      pointer("pointermove", { button: remaining === 1 ? 2 : 0, buttons: remaining });
-      pointer("pointermove", { button: -1, buttons: 3 });
-      pointer("pointermove", { button: remaining === 1 ? 2 : 0, buttons: remaining });
-      pointer("pointerup", { button: remaining === 1 ? 0 : 2, buttons: 0 });
-      expect(handlers.mouseChord).toHaveBeenCalledOnce();
-      expect(handlers.move).not.toHaveBeenCalled();
-      expect(handlers.up).not.toHaveBeenCalled();
-      expect(handlers.doubleClick).not.toHaveBeenCalled();
-      expect(captures.size).toBe(0);
-      const menu = new Event("contextmenu", { cancelable: true });
-      element.dispatchEvent(menu);
-      expect(menu.defaultPrevented).toBe(true);
-      pointer("pointerdown", { button: 2, buttons: 2 });
-      pointer("pointerup", { button: 2, buttons: 0 });
-      expect(handlers.up).toHaveBeenCalledOnce();
-      const nextMenu = new Event("contextmenu", { cancelable: true });
-      element.dispatchEvent(nextMenu);
-      expect(nextMenu.defaultPrevented).toBe(false);
-      input.dispose();
-    },
-  );
+  ])("keeps the original button %i gesture when another button is pressed", (first, firstMask, second, secondMask) => {
+    const { input, pointer, handlers, captures, element } = setup();
+    pointer("pointerdown", { button: first, buttons: firstMask });
+    pointer("pointermove", { button: second, buttons: 3, clientX: 60 });
+    expect(handlers.down).toHaveBeenCalledOnce();
+    expect(handlers.move).toHaveBeenCalledOnce();
+    expect(handlers.cancel).not.toHaveBeenCalled();
+    expect(captures.has(1)).toBe(true);
 
-  it("recognizes another chord after both buttons are released", () => {
-    const { input, pointer, handlers } = setup();
-    pointer("pointerdown", { buttons: 3 });
-    pointer("pointerup", { buttons: 0 });
-    pointer("pointerdown", { buttons: 3 });
-    expect(handlers.mouseChord).toHaveBeenCalledTimes(2);
-    pointer("pointerup", { buttons: 0 });
+    pointer("pointermove", { button: first, buttons: secondMask, clientX: 60 });
+    expect(handlers.up).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ button: first }));
+    pointer("pointerup", { button: second, buttons: 0 });
+    expect(handlers.up).toHaveBeenCalledOnce();
+    expect(handlers.doubleClick).not.toHaveBeenCalled();
+    expect(captures.size).toBe(0);
+
+    const menu = new Event("contextmenu", { cancelable: true });
+    element.dispatchEvent(menu);
+    expect(menu.defaultPrevented).toBe(false);
+    pointer("pointerdown", { button: second, buttons: secondMask });
+    pointer("pointerup", { button: second, buttons: 0 });
+    expect(handlers.up).toHaveBeenCalledTimes(2);
     input.dispose();
   });
 
-  it("accepts a simultaneous press and recovers from blur", () => {
+  it("recovers from blur while multiple mouse buttons are held", () => {
     const { input, pointer, handlers, captures } = setup();
-    pointer("pointerdown", { buttons: 3 });
-    expect(handlers.down).not.toHaveBeenCalled();
-    expect(handlers.mouseChord).toHaveBeenCalledOnce();
+    pointer("pointerdown", { button: 0, buttons: 3 });
+    expect(handlers.down).toHaveBeenCalledOnce();
     window.dispatchEvent(new Event("blur"));
     expect(captures.size).toBe(0);
     pointer("pointerup", { buttons: 0 });
     pointer("pointerdown", { buttons: 1 });
     pointer("pointerup", { buttons: 0 });
     expect(handlers.up).toHaveBeenCalledOnce();
-    input.dispose();
-  });
-
-  it("does not interpret pen buttons or a press begun outside the canvas as a mouse chord", () => {
-    const { input, pointer, handlers } = setup();
-    pointer("pointermove", { buttons: 3 });
-    pointer("pointerdown", { pointerType: "pen", buttons: 3 });
-    pointer("pointermove", { pointerType: "pen", buttons: 3 });
-    expect(handlers.mouseChord).not.toHaveBeenCalled();
     input.dispose();
   });
 
@@ -167,6 +137,39 @@ describe("unified canvas input", () => {
     expect(handlers.up).toHaveBeenCalledOnce();
     expect(captures.size).toBe(0);
     expect(handlers.cancel).not.toHaveBeenCalled();
+    input.dispose();
+  });
+
+  it("prevents native middle-button scrolling and keeps scroll events available after release", () => {
+    const { input, element, pointer, handlers, captures } = setup();
+    pointer("pointerdown", { button: 1, buttons: 4 });
+    const middle = Object.assign(new Event("mousedown", { cancelable: true }), { button: 1 });
+    element.dispatchEvent(middle);
+    expect(middle.defaultPrevented).toBe(true);
+    expect(captures.size).toBe(1);
+    pointer("pointerup", { button: 1, buttons: 0 });
+    expect(captures.size).toBe(0);
+    const wheel = Object.assign(new Event("wheel", { cancelable: true }), { clientX: 20, clientY: 40 });
+    element.dispatchEvent(wheel);
+    expect(handlers.wheel).toHaveBeenCalledOnce();
+    input.dispose();
+  });
+
+  it("reports each middle click after release and keeps middle-button drags separate", () => {
+    const { input, pointer, handlers } = setup();
+    for (let click = 0; click < 2; click++) {
+      pointer("pointerdown", { button: 1, buttons: 4 });
+      expect(handlers.middleClick).toHaveBeenCalledTimes(click);
+      pointer("pointerup", { button: 1, buttons: 0 });
+      expect(handlers.middleClick).toHaveBeenCalledTimes(click + 1);
+    }
+    expect(handlers.middleClick).toHaveBeenCalledAfter(handlers.up);
+    expect(handlers.doubleClick).not.toHaveBeenCalled();
+
+    pointer("pointerdown", { button: 1, buttons: 4 });
+    pointer("pointermove", { button: -1, buttons: 4, clientX: 80 });
+    pointer("pointerup", { button: 1, buttons: 0 });
+    expect(handlers.middleClick).toHaveBeenCalledTimes(2);
     input.dispose();
   });
 

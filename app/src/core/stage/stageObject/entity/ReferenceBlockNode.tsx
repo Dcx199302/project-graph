@@ -43,11 +43,6 @@ export class ReferenceBlockNode extends ConnectableEntity implements ResizeAble 
   @serializable
   attachmentId: string;
 
-  /**
-   * 节点是否被选中
-   */
-  _isSelected: boolean = false;
-
   bitmap: ImageBitmap | undefined;
   state: "loading" | "success" | "notFound" = "loading";
 
@@ -80,14 +75,6 @@ export class ReferenceBlockNode extends ConnectableEntity implements ResizeAble 
       // 否则生成截图
       this.generateScreenshot();
     }
-  }
-
-  public get isSelected() {
-    return this._isSelected;
-  }
-
-  public set isSelected(value: boolean) {
-    this._isSelected = value;
   }
 
   private loadImageFromAttachment() {

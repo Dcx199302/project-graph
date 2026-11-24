@@ -3,7 +3,7 @@ import { EntityShrinkEffect } from "@/core/service/feedbackService/effectEngine/
 import { PenStrokeDeletedEffect } from "@/core/service/feedbackService/effectEngine/concrete/PenStrokeDeletedEffect";
 import { SoundService } from "@/core/service/feedbackService/SoundService";
 import { Settings } from "@/core/service/Settings";
-import { Association } from "@/core/stage/stageObject/abstract/Association";
+import { Association, ConnectableAssociation } from "@/core/stage/stageObject/abstract/Association";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { StageObject } from "@/core/stage/stageObject/abstract/StageObject";
@@ -56,6 +56,8 @@ export type ChildCameraData = {
  */
 @service("stageManager")
 export class StageManager {
+  private selectAllScope: { nodeIds: Set<string>; global: boolean } | null = null;
+
   /**
    * 运行时缓存的根 Section 列表。
    * 它们没有直接父级 Section，会在 `updateReferences()` 中重建。
@@ -195,6 +197,7 @@ export class StageManager {
    * 包含了对Edge几何组偏移索引的更新（多重边/双向边自动散开）
    */
   updateReferences() {
+    this.selectAllScope = null;
     // 一次性建立 uuid -> ConnectableEntity 索引。
     // 原实现是「实体 × 关系」双层全量遍历：每个实体都重新扫描一次关系列表，
     // 数千节点/边的工程下单次调用即 O(N*E)，连接、删除等高频路径会卡顿。
@@ -655,6 +658,17 @@ export class StageManager {
     return result;
   }
 
+  getSelectionSummary(): string {
+    const entities = this.getSelectedEntities();
+    return [
+      entities.length,
+      entities.filter((entity) => entity instanceof ConnectableEntity).length,
+      entities.filter((entity) => entity instanceof TextNode).length,
+      entities.filter((entity) => entity instanceof Section).length,
+      this.getSelectedAssociations().length,
+    ].join(":");
+  }
+
   /**
    * 获取选中内容的边界矩形
    * @returns
@@ -1072,6 +1086,7 @@ export class StageManager {
         targetRectangleRate: edge.targetRectangleRate.clone(),
         lineType: edge.lineType,
         arrowType: edge.arrowType,
+        graphLayout: edge.graphLayout,
         offset: 10,
       });
       this.add(arcEdge);
@@ -1152,16 +1167,63 @@ export class StageManager {
     }
   }
 
-  /**
-   * ctrl + A 全选
-   */
-  selectAll() {
-    const allEntity = this.project.stage;
-    for (const entity of allEntity) {
-      entity.isSelected = true;
+  selectAll(): "local" | "global" {
+    const stage = this.project.stage;
+    const scope = this.selectAllScope;
+    if (scope && stage.every((object) => object.isSelected === (scope.global || scope.nodeIds.has(object.uuid)))) {
+      scope.global = !scope.global;
+    } else {
+      this.selectAllScope = null;
+      if (!stage.every((object) => object.isSelected)) {
+        const nodeIds = this.getRelatedNodeIds();
+        if (nodeIds && nodeIds.size < stage.length) this.selectAllScope = { nodeIds, global: false };
+      }
     }
+
+    const local = this.selectAllScope?.global === false ? this.selectAllScope.nodeIds : undefined;
+    for (const object of stage) object.isSelected = !local || local.has(object.uuid);
+    return local ? "local" : "global";
   }
+
+  private getRelatedNodeIds(): Set<string> | undefined {
+    const nodes = this.getConnectableEntity().filter((node) => !node.isHiddenBySectionCollapse);
+    const queue = nodes.filter((node) => node.isSelected);
+    if (queue.length === 0) return;
+
+    const visibleNodes = new Set(nodes);
+    const relationsByNode = new Map<ConnectableEntity, ConnectableAssociation[]>();
+    for (const relation of this.getAssociations()) {
+      if (!(relation instanceof ConnectableAssociation) || !relation.isPhysical) continue;
+      const endpoints = relation.associationList;
+      if (endpoints.length < 2 || !endpoints.every((node) => visibleNodes.has(node))) continue;
+      for (const node of endpoints) {
+        const relations = relationsByNode.get(node);
+        if (relations) relations.push(relation);
+        else relationsByNode.set(node, [relation]);
+      }
+    }
+
+    const nodeIds = new Set(queue.map((node) => node.uuid));
+    const visitedRelations = new Set<ConnectableAssociation>();
+    let hasConnectedNodes = false;
+    for (let index = 0; index < queue.length; index++) {
+      const node = queue[index];
+      for (const relation of relationsByNode.get(node) ?? []) {
+        if (visitedRelations.has(relation)) continue;
+        visitedRelations.add(relation);
+        for (const other of relation.associationList) {
+          if (other !== node) hasConnectedNodes = true;
+          if (nodeIds.has(other.uuid)) continue;
+          nodeIds.add(other.uuid);
+          queue.push(other);
+        }
+      }
+    }
+    return hasConnectedNodes ? nodeIds : undefined;
+  }
+
   clearSelectAll() {
+    this.selectAllScope = null;
     for (const entity of this.project.stage) {
       entity.isSelected = false;
     }

@@ -14,7 +14,7 @@ import { proxy } from "comlink";
 import type { LucideProps } from "lucide-react";
 import type { ForwardRefExoticComponent, RefAttributes } from "react";
 import { useEffect, useState } from "react";
-import { allKeyBinds, type KeyBindWhen } from "./shortcutKeysRegister";
+import { allKeyBinds, type KeyBindPress, type KeyBindWhen } from "./shortcutKeysRegister";
 
 export type KeyBindIcon = ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>;
 
@@ -22,11 +22,14 @@ export interface UIKeyBind {
   id: string;
   key: string;
   isEnabled: boolean;
-  onPress: (project?: Project) => void;
+  onPress: KeyBindPress;
   when: KeyBindWhen;
+  toolbarWhen?: KeyBindWhen;
   icon?: KeyBindIcon;
   // 是否是持续型快捷键
   isContinuous?: boolean;
+  isToggle?: boolean;
+  isRepeatable?: boolean;
   onRelease?: (project?: Project) => void;
 }
 
@@ -95,15 +98,26 @@ export namespace KeyBindsUI {
   }
 
   export async function canExecute(id: string, project = getActiveProject()): Promise<boolean> {
-    const keyBind = getUIKeyBind(id);
-    return !!keyBind && keyBind.isEnabled && (await keyBind.when(project));
+    return bindingAvailability(getUIKeyBind(id), project);
   }
 
-  export async function execute(id: string, project = getActiveProject()): Promise<boolean> {
+  function bindingAvailability(keyBind?: UIKeyBind, project?: Project, source?: "toolbar"): boolean | Promise<boolean> {
+    if (!keyBind?.isEnabled) return false;
+    const when = source === "toolbar" ? (keyBind.toolbarWhen ?? keyBind.when) : keyBind.when;
+    return when(project);
+  }
+
+  export function canExecuteFromToolbar(id: string, project: Project): boolean | Promise<boolean> {
+    return bindingAvailability(getUIKeyBind(id), project, "toolbar");
+  }
+
+  export async function execute(id: string, project = getActiveProject(), source?: "toolbar"): Promise<boolean> {
     const keyBind = getUIKeyBind(id);
-    if (!keyBind || !keyBind.isEnabled || !(await keyBind.when(project))) return false;
+    if (!keyBind) return false;
+    const allowed = bindingAvailability(keyBind, project, source);
+    if (!(source === "toolbar" && typeof allowed === "boolean" ? allowed : await allowed)) return false;
     const actionProject = keyBind.id.startsWith("ext:") && project ? proxy(project) : project;
-    await keyBind.onPress(actionProject);
+    await (source ? keyBind.onPress(actionProject, source) : keyBind.onPress(actionProject));
     if (keyBind.onRelease) {
       await new Promise((resolve) => setTimeout(resolve, 100));
       await keyBind.onRelease(actionProject);
@@ -111,7 +125,7 @@ export namespace KeyBindsUI {
     return true;
   }
 
-  // 快捷键列表整体变化监听器（新增/注销快捷键时触发）
+  // 快捷键列表变化监听器
   const keyBindListChangeListeners = new Set<(keyBinds: UIKeyBind[]) => void>();
 
   /**
@@ -213,6 +227,13 @@ export namespace KeyBindsUI {
    */
   export async function registerAllUIKeyBinds() {
     const store = await createStore("keybinds2.json");
+    const toolbarPackShortcutMigrated = (await store.get<boolean>("toolbarPackShortcutMigrated")) === true;
+    const toolbarGroupShortcutMigrated = (await store.get<boolean>("toolbarGroupShortcutMigrated")) === true;
+    const previousToolbarKeys = new Map([
+      ["packEntityToSection", isMac ? "M-g" : "C-g"],
+      ["toggleMouseDragMode", "h"],
+      ["createTwinTextNode", "y"],
+    ]);
     for (const keybind of allKeyBinds.filter((keybindItem) => !keybindItem.isGlobal)) {
       const savedData = await store.get<any>(keybind.id);
       let key: string;
@@ -236,6 +257,23 @@ export namespace KeyBindsUI {
         key = savedData.key;
         isEnabled = savedData.isEnabled !== false;
       }
+      if (isMac && keybind.id === "redo" && !(await store.get<boolean>("macRedoShortcutMigrated"))) {
+        if (key === "M-y") {
+          key = transEmacsKeyWinToMac(keybind.defaultKey);
+          await store.set(keybind.id, { key, isEnabled });
+        }
+        await store.set("macRedoShortcutMigrated", true);
+      }
+      const previousToolbarKey = previousToolbarKeys.get(keybind.id);
+      if (
+        (keybind.id === "checkoutLeftMouseToDrawing" && key === "b b b") ||
+        (keybind.id === "generateNodeTreeWithBroadMode" && key === "\\") ||
+        (!toolbarPackShortcutMigrated && previousToolbarKey !== undefined && key === previousToolbarKey) ||
+        (!toolbarGroupShortcutMigrated && keybind.id === "packEntityToSection" && key === "h")
+      ) {
+        key = keybind.defaultKey;
+        await store.set(keybind.id, { key, isEnabled });
+      }
 
       KeyBindsUI.registerOneUIKeyBind(
         keybind.id,
@@ -246,8 +284,13 @@ export namespace KeyBindsUI {
         keybind.isContinuous,
         keybind.when,
         keybind.icon,
+        keybind.toolbarWhen,
+        keybind.isToggle,
+        keybind.isRepeatable,
       );
     }
+    if (!toolbarPackShortcutMigrated) await store.set("toolbarPackShortcutMigrated", true);
+    if (!toolbarGroupShortcutMigrated) await store.set("toolbarGroupShortcutMigrated", true);
     await store.save();
   }
   /**
@@ -259,25 +302,41 @@ export namespace KeyBindsUI {
     id: string,
     key: string,
     isEnabled: boolean = true,
-    onPress: (project?: Project) => void = () => {},
+    onPress: KeyBindPress = () => {},
     onRelease?: (project?: Project) => void,
     isContinuous?: boolean,
     when: KeyBindWhen = () => true,
     icon?: KeyBindIcon,
+    toolbarWhen?: KeyBindWhen,
+    isToggle?: boolean,
+    isRepeatable?: boolean,
   ) {
+    const keyBind: UIKeyBind = {
+      id,
+      key,
+      isEnabled,
+      onPress,
+      onRelease,
+      when,
+      isContinuous,
+      icon,
+      toolbarWhen,
+      isToggle,
+      isRepeatable,
+    };
     if (registerSet.has(id)) {
       // 检查是否已经是同 ID 的快捷键，如果是，则更新它（用于扩展重新认领逻辑）
       const index = allUIKeyBinds.findIndex((kb) => kb.id === id);
       if (index !== -1) {
-        allUIKeyBinds[index] = { id, key, isEnabled, onPress, onRelease, when, isContinuous, icon };
+        allUIKeyBinds[index] = keyBind;
         notifyKeyBindChange(id, allUIKeyBinds[index]);
+        notifyKeyBindListChange();
         return;
       }
       console.warn(`Keybind ${id} 已经注册过了`);
       return;
     }
     registerSet.add(id);
-    const keyBind: UIKeyBind = { id, key, isEnabled, onPress, onRelease, when, isContinuous, icon };
     allUIKeyBinds.push(keyBind);
 
     // 通知监听器有新的快捷键注册
@@ -315,6 +374,7 @@ export namespace KeyBindsUI {
     // 通知监听器快捷键已更改
     if (updatedKeyBind) {
       notifyKeyBindChange(id, updatedKeyBind);
+      notifyKeyBindListChange();
     }
 
     const store = await createStore("keybinds2.json");
@@ -341,6 +401,7 @@ export namespace KeyBindsUI {
       }
       return it;
     });
+    notifyKeyBindListChange();
 
     const store = await createStore("keybinds2.json");
     const currentConfig = await store.get<any>(id);
@@ -406,6 +467,7 @@ export namespace KeyBindsUI {
         uiKeyBind.isEnabled = keybind.defaultEnabled !== false;
       }
     }
+    notifyKeyBindListChange();
   }
 
   /**
@@ -452,6 +514,7 @@ export namespace KeyBindsUI {
         uiKeyBind.key = defaultValue;
       }
     }
+    notifyKeyBindListChange();
   }
 
   // 跟踪当前按下的单键快捷键（序列型）
@@ -459,6 +522,25 @@ export namespace KeyBindsUI {
 
   // 跟踪当前按下的持续型快捷键（存放 id，防止重复触发）
   const pressedContinuousKeyBindIds = new Set<string>();
+  let pendingToggle:
+    | { timer: ReturnType<typeof setTimeout>; nextKeys: string[]; run: () => Promise<boolean> }
+    | undefined;
+
+  async function finishPendingToggle(run: boolean) {
+    const pending = pendingToggle;
+    if (!pending) return;
+    pendingToggle = undefined;
+    clearTimeout(pending.timer);
+    if (run && shouldProcessKeyboardEvent()) await pending.run();
+  }
+
+  const cancelPendingToggle = () => void finishPendingToggle(false);
+
+  function resolvePendingToggleBefore(event: KeyboardEvent | MouseEvent | WheelEvent) {
+    if (!pendingToggle || (event instanceof KeyboardEvent && event.repeat)) return;
+    const continuedSequence = pendingToggle.nextKeys.some((key) => matchEmacsKeyPress(key, [event]));
+    return finishPendingToggle(!continuedSequence);
+  }
 
   export function uiStartListen() {
     window.addEventListener("mousedown", onMouseDown);
@@ -466,6 +548,7 @@ export namespace KeyBindsUI {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("blur", cancelPendingToggle);
   }
 
   export function uiStopListen() {
@@ -474,8 +557,10 @@ export namespace KeyBindsUI {
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("wheel", onWheel);
+    window.removeEventListener("blur", cancelPendingToggle);
     pressedSingleKeyBinds.clear();
     pressedContinuousKeyBindIds.clear();
+    cancelPendingToggle();
   }
 
   /**
@@ -483,20 +568,24 @@ export namespace KeyBindsUI {
    * 当有文本输入元素获得焦点时，不处理键盘事件
    */
   function shouldProcessKeyboardEvent() {
+    const focused = document.activeElement;
     return !(
-      document.activeElement?.tagName === "INPUT" ||
-      document.activeElement?.tagName === "TEXTAREA" ||
-      document.activeElement?.getAttribute("contenteditable") === "true"
+      focused?.tagName === "INPUT" ||
+      focused?.tagName === "TEXTAREA" ||
+      (focused instanceof HTMLElement && focused.isContentEditable) ||
+      focused?.getAttribute("contenteditable") === "true"
     );
   }
 
-  async function check(): Promise<boolean> {
+  async function check(event: KeyboardEvent | MouseEvent | WheelEvent): Promise<boolean> {
     // 如果有文本输入元素获得焦点，不处理键盘事件
     if (!shouldProcessKeyboardEvent()) {
       // 清空队列，防止事件积累
       userEventQueue.clear();
+      cancelPendingToggle();
       return false;
     }
+    const repeat = event instanceof KeyboardEvent && event.repeat;
     const tab = store.get(activeTabAtom);
     const activeProject = tab instanceof Project ? tab : undefined;
 
@@ -505,6 +594,7 @@ export namespace KeyBindsUI {
     for (const uiKeyBind of allUIKeyBinds) {
       if (!uiKeyBind.isEnabled) continue;
       if (uiKeyBind.isContinuous) continue;
+      if (repeat && (uiKeyBind.isToggle || uiKeyBind.isRepeatable === false)) continue;
       if (matchEmacsKeyPress(uiKeyBind.key, userEventQueue.arrayList)) {
         const seqLength = uiKeyBind.key.trim().split(/\s+/).length;
         matched.push({ uiKeyBind, seqLength });
@@ -517,6 +607,29 @@ export namespace KeyBindsUI {
     for (const { uiKeyBind, seqLength } of matched) {
       if (maxExecutedLength >= 0 && seqLength < maxExecutedLength) break;
       if (!(await uiKeyBind.when(activeProject))) continue;
+      if (uiKeyBind.isToggle) {
+        const nextKeys = allUIKeyBinds
+          .filter((binding) => binding.isEnabled && !binding.isContinuous)
+          .flatMap((binding) => {
+            const keys = binding.key.trim().split(/\s+/);
+            return keys.filter(
+              (_, index) =>
+                index >= seqLength && matchEmacsKeyPress(keys.slice(0, index).join(" "), userEventQueue.arrayList),
+            );
+          });
+        if (nextKeys.length > 0) {
+          // 给正在输入的更长序列留出时间。
+          pendingToggle = {
+            timer: setTimeout(() => void finishPendingToggle(true), 250),
+            nextKeys,
+            run: () =>
+              getFocusedProject() === activeProject && getUIKeyBind(uiKeyBind.id) === uiKeyBind
+                ? execute(uiKeyBind.id, activeProject)
+                : Promise.resolve(false),
+          };
+          return true;
+        }
+      }
       uiKeyBind.onPress(uiKeyBind.id.startsWith("ext:") && activeProject ? proxy(activeProject) : activeProject);
       if (uiKeyBind.onRelease && uiKeyBind.key.length === 1) {
         pressedSingleKeyBinds.add(uiKeyBind.key);
@@ -536,7 +649,8 @@ export namespace KeyBindsUI {
       event.preventDefault();
       return;
     }
-    await check();
+    if (pendingToggle) await resolvePendingToggleBefore(event);
+    await check(event);
   }
   async function onMouseUp(event: MouseEvent) {
     for (const interceptor of inputInterceptors) {
@@ -545,20 +659,26 @@ export namespace KeyBindsUI {
   }
   async function onKeyDown(event: KeyboardEvent) {
     // 如果有文本输入元素获得焦点，不处理键盘事件
-    if (!shouldProcessKeyboardEvent()) {
+    if (event.isComposing || !shouldProcessKeyboardEvent()) {
       // 清空队列，防止事件积累
       userEventQueue.clear();
+      cancelPendingToggle();
       return;
     }
     if (["control", "alt", "shift", "meta"].includes(event.key.toLowerCase())) return;
 
     const activeProject = getFocusedProject();
+    if (activeProject && isMac && event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "z") {
+      // macOS 原生编辑菜单可能撤销已失焦文本框中的内容，必须在异步检查前拦截。
+      event.preventDefault();
+    }
 
     enqueue(event);
     if (await interceptInput(event)) {
       event.preventDefault();
       return;
     }
+    if (pendingToggle) await resolvePendingToggleBefore(event);
 
     // ——持续型快捷键独立路径——
     let continuousExecuted = false;
@@ -587,7 +707,7 @@ export namespace KeyBindsUI {
     // 持续型路径处理后，不 return——序列型照常入队检测（两者不冲突）
 
     // ——序列型快捷键路径——
-    const sequenceExecuted = await check();
+    const sequenceExecuted = await check(event);
 
     // 只要有快捷键被执行，就阻止浏览器默认行为（防止 Tab 跳焦点、方向键滚动页面等）
     if (continuousExecuted || sequenceExecuted) {
@@ -638,7 +758,8 @@ export namespace KeyBindsUI {
   async function onWheel(event: WheelEvent) {
     enqueue(event);
     if (await interceptInput(event)) return;
-    await check();
+    if (pendingToggle) await resolvePendingToggleBefore(event);
+    await check(event);
   }
 
   /**

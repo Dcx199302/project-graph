@@ -36,7 +36,6 @@ export class ConnectPoint extends ConnectableEntity {
   /**
    * 节点是否被选中
    */
-  _isSelected: boolean = false;
 
   /**
    * 获取节点的选中状态
@@ -50,7 +49,7 @@ export class ConnectPoint extends ConnectableEntity {
     if (oldValue === value) {
       return;
     }
-    this._isSelected = value;
+    super.isSelected = value;
 
     const rectangle = this.collisionBox.shapes[0];
     if (!(rectangle instanceof Rectangle)) {

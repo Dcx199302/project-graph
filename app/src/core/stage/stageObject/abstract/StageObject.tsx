@@ -12,6 +12,8 @@ import type { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisi
  * 都具有碰撞箱，uuid
  */
 export abstract class StageObject {
+  private static nextSelectionOrder = 0;
+  private selectedAt?: number;
   protected abstract readonly project: Project;
 
   // 舞台对象，必定有 uuid
@@ -37,7 +39,12 @@ export abstract class StageObject {
   }
 
   public set isSelected(value: boolean) {
+    if (value && !this._isSelected) this.selectedAt = ++StageObject.nextSelectionOrder;
     this._isSelected = value;
+  }
+
+  public get selectionOrder(): number {
+    return this.selectedAt ?? Number.MAX_SAFE_INTEGER;
   }
 
   public dispose?(): void | Promise<void>;

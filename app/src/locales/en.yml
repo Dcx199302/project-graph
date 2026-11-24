@@ -19,6 +19,57 @@ projectStatus:
   stashed: Stashed locally
   unsaved: Unsaved changes
 
+canvasToolbar:
+  title: Canvas tools
+  selectAndMove: Select
+  drag: Drag
+  draw: Draw
+  connectAndCut: Connect/Cut
+  create: Create
+  tree: Tree
+  align: Align
+  layout: Layout
+  organize: Organize
+  connect: Connect
+  more: More
+  penColors: Pen colors
+  defaultPenColor: Default color
+  penColor: "{{color}}"
+  mindMapLockedSelection: Select movable nodes
+  actions:
+    createTextNodeFromCameraLocation: Add at center
+    createTextNodeFromMouseLocation: Add at cursor
+    createConnectPointFromMouseLocation: Add point
+    createTextNodeFromSelectedTop: Add above
+    createTextNodeFromSelectedRight: Add right
+    createTextNodeFromSelectedLeft: Add left
+    createTextNodeFromSelectedDown: Add below
+    generateNodeTreeWithDeepMode: Add child
+    generateNodeTreeWithBroadMode: Add sibling
+    generateNodeTreeWithDeepModeEditEdge: Grow and edit
+    alignLeft: Align left
+    alignRight: Align right
+    alignHorizontalSpaceBetween: Distribute horizontally
+    alignVerticalSpaceBetween: Distribute vertically
+    alignLeftToRightNoSpace: Pack row
+    alignTopToBottomNoSpace: Pack column
+    layoutToSquare: Square grid
+    layoutToTightSquare: Compact grid
+    layoutToTightSquareDeep: Recursive grid
+    dagGraphAdjust: DAG layout
+    packEntityToSection: Group
+    textNodeToSection: Convert to section
+    unpackEntityFromSection: Unpack
+    folderSection: Fold/Unfold
+    toggleSectionLock: Lock/Unlock
+    createTwinTextNode: Twin node
+    createUndirectedEdgeFromEntities: Undirected edge
+    createMTUEdgeConvex: Convex hull
+    connectAllSelectedEntities: Connect all pairs
+    connectLeftToRight: Connect right
+    connectTopToBottom: Connect down
+    deleteSelectedStageObjects: Delete
+
 welcome:
   aboutDescription: Connect ideas with nodes and organize knowledge with graphs. Project Graph provides a freeform canvas for brainstorming, knowledge management, and project planning. Connections and automatic layouts help make complex ideas clear.
   slogan: Infinite canvas mind mapping software based on graph theory
@@ -579,7 +630,8 @@ settings:
   mouseLeftMode:
     title: Mouse Left Button Mode
     options:
-      selectAndMove: select and move
+      selectAndMove: Select
+      drag: Drag
       draw: draw
       connectAndCut: connect and cut
   doubleClickMiddleMouseButton:
@@ -619,10 +671,8 @@ settings:
   textNodeStartEditMode:
     title: Enter Text Node Editing Mode
     options:
-      enter: Enter
       ctrlEnter: Ctrl + Enter
       altEnter: Alt + Enter
-      shiftEnter: Shift + Enter
       space: Space Bar
     description: |
       You can also enter editing mode by pressing the F2 key. Another option can be selected here.
@@ -940,7 +990,7 @@ settings:
       none: None
   autoEnterSectionEditMode:
     title: Auto Enter Edit Mode When Creating Section
-    description: When enabled, creating a section with Ctrl+G will automatically pop up the title input box for quick naming. When disabled, the new section will only be selected without entering edit mode.
+    description: When enabled, creating a group opens the title input for quick naming. When disabled, the new group is selected without entering edit mode.
   macTrackpadAndMouseWheelDifference:
     options:
       tarckpadFloatAndWheelInt: The value of the trackpad is a decimal, while 
@@ -1059,7 +1109,7 @@ settings:
   treeGenerateInheritParentColor:
     title: Inherit parent color when growing nodes
     description: |
-      When enabled, new nodes created via Tab or \ will inherit the parent node color
+      When enabled, new nodes created through growth shortcuts inherit the parent node color
       When disabled, new nodes will not inherit the parent node color
   enableTabGenerateNodeInInput:
     title: Enable deep-grow shortcut to create child nodes while in input mode
@@ -1070,9 +1120,8 @@ settings:
   enableBackslashGenerateNodeInInput:
     title: Enable broad-grow shortcut to create sibling nodes while in input mode
     description: |
-      When enabled, pressing the broad-grow shortcut key (default: \) while editing a text node will also create a sibling node
-      When disabled, the broad-grow shortcut can only create sibling nodes when not in edit mode
-      Note: The broad-grow shortcut does not support sequence-type key bindings (e.g. "e \"). Please set it to a single key.
+      When enabled, a custom shortcut such as backslash adds a sibling below while editing a text node.
+      Use a single key or a key combination. Enter remains available for submitting or inserting a line break.
   agreeTerms:
     title: agree to the Terms of Service
     description: "please read carefully and agree to the Terms of Service\n"
@@ -1507,10 +1556,10 @@ keyBinds:
     title: Redo
     description: Cancel the last undo action
   resetView:
-    title: Reset View
+    title: Fit View
     description: |
-      If no content is selected, reset the viewport based on all content.
-      If content is selected, reset the viewport based on the selected content.
+      Fit the selected content. With no selection, fit all content with about 15 pixels of padding around the canvas.
+      Press again to restore the previous position and zoom.
   restoreCameraState:
     title: Restore View State
     description: |
@@ -1594,9 +1643,8 @@ keyBinds:
     description: |
       Default shortcut note: U, T, E. U=Undirected, T=To (convert to), E=Edge (directed)
   packEntityToSection:
-    title: Pack Selected Entities into Section Box
-    description: |
-      When pressed, the selected entities will be automatically wrapped into a new Section box.
+    title: Group
+    description: Group the selected entities. Select a single group to ungroup it and keep its contents.
   unpackEntityFromSection:
     title: Unpack Section Box and Convert to Text Node
     description: |
@@ -1658,11 +1706,13 @@ keyBinds:
       If connected to an existing node (thread needle), only creates the edge and enters edge text editing mode.
       Default shortcut note: Press e then tab. Here e stands for Edge
   generateNodeTreeWithBroadMode:
-    title: Grow Node in Brother Mode
+    title: Add Sibling Below
     description: |
-      When pressed, instantly grow a sibling node and place it below the currently selected node.
-      Automatically arrange the entire node tree structure to ensure it forms a downward tree structure.
-      Before using this feature, ensure a node is selected and that it has a parent node.
+      Add a node below the selection and share its parents. A node with no parents produces a standalone node.
+  generateNodeTreeWithBroadModeAbove:
+    title: Add Sibling Above
+    description: |
+      Add a node above the selection and share its parents. A node with no parents produces a standalone node.
   setNodeTreeDirectionUp:
     title: Set Tree Growth Direction to Up
     description: |
@@ -1689,7 +1739,8 @@ keyBinds:
       When pressed, the camera the camera stops drifting and sets the speed to 0
   selectAll:
     title: Select All
-    description: Select all nodes and connections when pressed
+    description: Select the connected nodes from the current selection. Press again to switch between the connected nodes and the entire canvas. With no connected group, select the entire canvas.
+    globalSelected: Entire canvas selected
   selectAtCrosshair:
     title: Select node at crosshair
     description: |
@@ -1712,6 +1763,10 @@ keyBinds:
     title: "AI: Summarize Selected Text"
     description: |
       Fill the AI panel with selected text nodes and a preset prompt to summarize the core content.
+  mindMapLayout:
+    title: Mind map
+  fishboneLayout:
+    title: Fishbone
   createTextNodeFromCameraLocation:
     title: Create Text Node at Camera Center
     description: |
@@ -1788,7 +1843,7 @@ keyBinds:
     description: Set a custom CSS font-weight for selected text nodes (e.g. bold, 600). Leave empty to reset to normal.
   createTwinTextNode:
     title: Create Twin Text Node
-    description: Create twin nodes for all selected text nodes. New nodes will sync content with original nodes. Press Shift+Y to trigger.
+    description: Create twin nodes for all selected text nodes. New nodes will sync content with original nodes. The default shortcut is Shift+Y.
   checkoutProtectPrivacy:
     title: Enter/Exit Privacy Protection Mode
     description: |
@@ -1872,6 +1927,54 @@ keyBinds:
     title: Create Text Node at Mouse Position
     description: "After pressing, create a text node at the current position of the
       mouse \nEquivalent to the function of creating nodes with a mouse click\n"
+  createConnectPointFromMouseLocation:
+    title: Create Connection Point at Mouse Position
+  alignTop:
+    title: Align Tops
+  alignBottom:
+    title: Align Bottoms
+  alignLeft:
+    title: Align Left Edges
+  alignRight:
+    title: Align Right Edges
+  alignCenterHorizontal:
+    title: Center Horizontally
+  alignCenterVertical:
+    title: Center Vertically
+  alignHorizontalSpaceBetween:
+    title: Distribute Horizontally
+  alignVerticalSpaceBetween:
+    title: Distribute Vertically
+  alignLeftToRightNoSpace:
+    title: Pack Into a Row
+  alignTopToBottomNoSpace:
+    title: Pack Into a Column
+  arrangeSelectedVertical:
+    title: Arrange Vertically
+  arrangeSelectedHorizontal:
+    title: Arrange Horizontally
+  increaseSelectedNodeSpacing:
+    title: Increase Node Spacing
+    description: Spread selected nodes outward from the center of the selection.
+  decreaseSelectedNodeSpacing:
+    title: Decrease Node Spacing
+    description: Bring selected nodes closer while preserving a minimum gap.
+  layoutToSquare:
+    title: Arrange in a Square
+  layoutToTightSquare:
+    title: Arrange in a Compact Square
+  layoutToTightSquareDeep:
+    title: Compact Squares Including Nested Sections
+  connectAllSelectedEntities:
+    title: Connect Every Pair of Selected Nodes
+  connectLeftToRight:
+    title: Connect Left to Right
+  connectTopToBottom:
+    title: Connect Top to Bottom
+  createUndirectedEdgeFromEntities:
+    title: Create an Undirected Edge
+  createMTUEdgeConvex:
+    title: Create a Convex Hull
   clickAppMenuRecentFileButton:
     title: Open the list of recently opened file
     description: "When this key is pressed, open the list of recently opened files
@@ -1881,16 +1984,17 @@ keyBinds:
     description: "When this key is pressed, change the state(Open/Close) of Start
       File Panel without mouse\n"
   checkoutLeftMouseToSelectAndMove:
-    title: Set the left mouse button to "Select/Move" mode
-    description: "That is to say, the left mouse button switches to normal mode\n"
+    title: Switch to Select Mode
+    description: Click to select or drag a selection box with the left mouse button.
+  toggleMouseDragMode:
+    title: Toggle Drag Mode
+    description: Drag nodes or the canvas with the left mouse button. Toggle again to return to Select mode.
   checkoutLeftMouseToDrawing:
-    title: Set the left mouse button to "Drawing" mode
-    description: "That is to say, the left mouse button switches to Drawing Mode,
-      and there is a corresponding button in the toolbar\n"
+    title: Toggle Drawing Mode
+    description: Draw strokes with the left mouse button. Press again to return to Select mode.
   checkoutLeftMouseToConnectAndCutting:
     title: Set the left mouse button to "Connect/Cutting" Mode
-    description: "That is to say, the left mouse button switches to connect/cutting
-      mode, and there is corresponding button in the toolbar\n"
+    description: Connect nodes or cut edges with the left mouse button.
   penStrokeWidthIncrease:
     title: Increase Pen Stroke Size
     description: After pressing, the stroke becomes thicker

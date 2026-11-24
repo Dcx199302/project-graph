@@ -1,5 +1,7 @@
 import { Vector } from "@graphif/data-structures";
 
+const canvasLocations = new WeakMap<HTMLCanvasElement, Vector>();
+
 export const MouseLocation = {
   x: 0,
   y: 0,
@@ -14,6 +16,7 @@ export const MouseLocation = {
         if (rect.width > 0 && rect.height > 0) {
           MouseLocation.x = ((event.clientX - rect.left) * event.target.clientWidth) / rect.width;
           MouseLocation.y = ((event.clientY - rect.top) * event.target.clientHeight) / rect.height;
+          canvasLocations.set(event.target, MouseLocation.vector());
         }
       }
       // this.project.controller.recordManipulate();
@@ -40,6 +43,18 @@ export const MouseLocation = {
    */
   vector(): Vector {
     return new Vector(this.x, this.y);
+  },
+  vectorFor(canvas: HTMLCanvasElement): Vector | undefined {
+    const location = canvasLocations.get(canvas);
+    if (
+      location &&
+      location.x >= 0 &&
+      location.y >= 0 &&
+      location.x < canvas.clientWidth &&
+      location.y < canvas.clientHeight
+    ) {
+      return location.clone();
+    }
   },
   clientVector(): Vector {
     return new Vector(this.clientX, this.clientY);

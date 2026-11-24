@@ -10,6 +10,56 @@ projectStatus:
   stashed: Disimpan sementara
   unsaved: Perubahan belum disimpan
 
+canvasToolbar:
+  title: Alat kanvas
+  selectAndMove: Pilih
+  drag: Seret
+  draw: Gambar
+  connectAndCut: Hubungkan/Potong
+  create: Buat
+  tree: Pohon
+  align: Perataan
+  layout: Tata letak
+  organize: Kelola
+  connect: Hubungkan
+  more: Lainnya
+  penColors: Warna pena
+  defaultPenColor: Warna bawaan
+  penColor: "{{color}}"
+  mindMapLockedSelection: Pilih simpul yang dapat dipindahkan
+  actions:
+    createTextNodeFromCameraLocation: Tambah di tengah
+    createTextNodeFromMouseLocation: Tambah di kursor
+    createConnectPointFromMouseLocation: Tambah titik
+    createTextNodeFromSelectedTop: Tambah di atas
+    createTextNodeFromSelectedRight: Tambah di kanan
+    createTextNodeFromSelectedLeft: Tambah di kiri
+    createTextNodeFromSelectedDown: Tambah di bawah
+    generateNodeTreeWithDeepMode: Tambah anak
+    generateNodeTreeWithBroadMode: Tambah saudara
+    generateNodeTreeWithDeepModeEditEdge: Tambah dan edit
+    alignHorizontalSpaceBetween: Jarak horizontal
+    alignVerticalSpaceBetween: Jarak vertikal
+    alignLeftToRightNoSpace: Rapatkan baris
+    alignTopToBottomNoSpace: Rapatkan kolom
+    layoutToSquare: Kisi persegi
+    layoutToTightSquare: Kisi rapat
+    layoutToTightSquareDeep: Kisi rekursif
+    dagGraphAdjust: Tata letak DAG
+    packEntityToSection: Kelompokkan
+    textNodeToSection: Ubah jadi bagian
+    unpackEntityFromSection: Bongkar
+    folderSection: Lipat/Buka
+    toggleSectionLock: Kunci/Buka kunci
+    createTwinTextNode: Simpul kembar
+    createUndirectedEdgeFromEntities: Garis tak berarah
+    createMTUEdgeConvex: Convex hull
+    connectAllSelectedEntities: Hubungkan tiap pasangan
+    connectLeftToRight: Hubungkan ke kanan
+    connectTopToBottom: Hubungkan ke bawah
+    redo: Ulangi
+    deleteSelectedStageObjects: Hapus
+
 welcome:
   slogan: Perangkat Lunak Pemetaan Kerangka Berpikir Berbasis Teori Graf
   slogans:
@@ -436,7 +486,7 @@ settings:
       none: Tidak Ada
   autoEnterSectionEditMode:
     title: Otomatis Masuk Mode Edit Saat Membuat Kotak
-    description: Saat diaktifkan, membuat kotak dengan Ctrl+G akan otomatis menampilkan kotak input judul untuk penamaan cepat. Saat dinonaktifkan, kotak baru hanya akan dipilih tanpa masuk mode edit.
+    description: Saat diaktifkan, membuat grup akan membuka kolom judul untuk penamaan cepat. Saat dinonaktifkan, grup baru dipilih tanpa masuk mode edit.
   alwaysShowDetails:
     title: Selalu Tampilkan Detail Node
     description: |
@@ -788,7 +838,7 @@ settings:
   treeGenerateInheritParentColor:
     title: Warna Node Baru Ikuti Warna Induk
     description: |
-      Saat diaktifkan, node baru yang dibuat melalui Tab atau \ akan mewarisi warna dari node induk
+      Saat diaktifkan, node yang ditumbuhkan akan mewarisi warna dari node induk
       Saat dimatikan, node baru tidak akan mewarisi warna dari node induk
   enableTabGenerateNodeInInput:
     title: Aktifkan shortcut deep-grow untuk membuat node anak dalam mode input
@@ -799,9 +849,8 @@ settings:
   enableBackslashGenerateNodeInInput:
     title: Aktifkan shortcut broad-grow untuk membuat node selevel dalam mode input
     description: |
-      Saat diaktifkan, menekan tombol shortcut broad-grow (default: \) saat mengedit node teks juga dapat membuat node selevel
-      Saat dimatikan, shortcut broad-grow hanya dapat membuat node selevel saat tidak dalam mode edit
-      Catatan: Shortcut broad-grow tidak mendukung key binding tipe sekuens (mis. "e \"). Harap atur ke satu tombol saja.
+      Saat diaktifkan, pintasan khusus seperti garis miring terbalik dapat menambah node selevel di bawah saat mengedit node teks.
+      Gunakan satu tombol atau kombinasi tombol. Enter tetap dapat digunakan untuk menyimpan atau menambah baris.
   moveAmplitude:
     title: Percepatan Gerakan Tampilan
     description: |
@@ -832,7 +881,8 @@ settings:
   mouseLeftMode:
     title: Alihkan Mode Klik Kiri
     options:
-      selectAndMove: Pilih dan Gerakkan
+      selectAndMove: Pilih
+      drag: Seret
       draw: Gambar
       connectAndCut: Hubungkan dan Potong
   doubleClickMiddleMouseButton:
@@ -872,10 +922,8 @@ settings:
   textNodeStartEditMode:
     title: Masuk Mode Edit Node Teks
     options:
-      enter: Enter
       ctrlEnter: ctrl + Enter
       altEnter: alt + Enter
-      shiftEnter: shift + Enter
       space: Tombol Spasi
     description: |
       Sebenarnya menekan tombol F2 juga dapat masuk mode edit, di sini dapat menambah satu lagi
@@ -1828,10 +1876,10 @@ keyBinds:
     title: Ulangi Pembatalan
     description: Ulangi operasi pembatalan sebelumnya
   resetView:
-    title: Atur Ulang Tampilan
+    title: Sesuaikan Tampilan
     description: |
-      Jika tidak memilih apa pun, atur ulang tampilan berdasarkan semua konten;
-      Jika ada konten yang dipilih, atur ulang tampilan berdasarkan konten yang dipilih
+      Sesuaikan tampilan dengan konten pilihan. Tanpa pilihan, tampilkan semua konten dengan jarak sekitar 15 piksel dari tepi kanvas.
+      Tekan lagi untuk memulihkan posisi dan zoom sebelumnya.
   restoreCameraState:
     title: Pulihkan Status Tampilan
     description: |
@@ -1900,9 +1948,8 @@ keyBinds:
     description: |
       Setelah ditekan, akan dibuat garis tak berarah antara dua atau lebih entitas yang dipilih
   packEntityToSection:
-    title: Kemas Entitas yang Dipilih ke dalam Kotak Section
-    description: |
-      Setelah ditekan, entitas yang dipilih akan otomatis dibungkus ke kotak Section baru
+    title: Kelompokkan
+    description: Kelompokkan entitas yang dipilih. Pilih satu grup untuk membubarkannya sambil mempertahankan isinya.
   unpackEntityFromSection:
     title: Buka Kemas Kotak Section, Konversi ke Node Teks
     description: |
@@ -1954,11 +2001,13 @@ keyBinds:
       Jika terhubung ke node yang sudah ada (jarum benang), hanya buat edge dan masuk ke mode edit teks edge.
       Catatan tombol pintas default: Tekan e lalu tab. Di sini e singkatan dari Edge (sisi/tepi)
   generateNodeTreeWithBroadMode:
-    title: Tumbuhkan Node Selevel
+    title: Tambah Node Selevel di Bawah
     description: |
-      Setelah ditekan, tumbuhkan node selevel secara instan dan letakkan di bawah node yang dipilih saat ini
-      Sambil otomatis melayout struktur seluruh pohon node, memastikannya adalah struktur pohon ke bawah
-      Sebelum menggunakan fungsi ini pastikan telah memilih satu node, dan node tersebut memiliki node induk
+      Tambahkan node di bawah node pilihan dengan induk yang sama. Jika tidak ada induk, node baru akan berdiri sendiri.
+  generateNodeTreeWithBroadModeAbove:
+    title: Tambah Node Selevel di Atas
+    description: |
+      Tambahkan node di atas node pilihan dengan induk yang sama. Jika tidak ada induk, node baru akan berdiri sendiri.
   generateNodeGraph:
     title: Tumbuhkan Node Bebas
     description: |
@@ -2057,7 +2106,8 @@ keyBinds:
       Setelah ditekan, hentikan melayang kamera, dan atur kecepatan ke 0
   selectAll:
     title: Pilih Semua
-    description: Setelah ditekan, semua node dan garis akan dipilih
+    description: Pilih node yang terhubung dengan pilihan saat ini. Tekan lagi untuk beralih antara kelompok tersebut dan seluruh kanvas. Jika tidak ada kelompok terhubung, pilih seluruh kanvas.
+    globalSelected: Seluruh kanvas telah dipilih
   generateTreeBySelectedTextNodeTextWithAI:
     title: "AI: Buat Struktur Pohon"
     description: |
@@ -2070,6 +2120,10 @@ keyBinds:
     title: "AI: Buat Ringkasan"
     description: |
       Isi panel AI dengan konten node teks yang dipilih dan prompt bawaan untuk meringkas inti konten.
+  mindMapLayout:
+    title: Peta pikiran
+  fishboneLayout:
+    title: Diagram tulang ikan
   createTextNodeFromCameraLocation:
     title: Buat Node Teks di Posisi Pusat Tampilan
     description: |
@@ -2080,6 +2134,10 @@ keyBinds:
     description: |
       Setelah ditekan, buat node teks di posisi mouse mengambang
       Sama dengan fungsi buat node dengan klik mouse
+  createConnectPointFromMouseLocation:
+    title: Buat titik koneksi di posisi kursor
+  createMTUEdgeConvex:
+    title: Buat convex hull
   createTextNodeFromSelectedTop:
     title: Buat Node Teks Tepat di Atas Node yang Dipilih Saat Ini
     description: |
@@ -2263,17 +2321,17 @@ keyBinds:
     description: |
       Setelah ditekan, status pilihan entitas akan dipindahkan ke node induk, sambil mempertahankan status pilihan node saat ini
   checkoutLeftMouseToSelectAndMove:
-    title: Atur Klik Kiri ke Mode "Pilih/Gerakkan"
-    description: |
-      Yaitu klik kiri mouse beralih ke mode normal
+    title: Beralih ke Mode Pilih
+    description: Klik kiri untuk memilih atau seret untuk membuat kotak pilihan.
+  toggleMouseDragMode:
+    title: Alihkan Mode Seret
+    description: Seret simpul atau kanvas dengan tombol kiri. Tekan lagi untuk kembali ke mode Pilih.
   checkoutLeftMouseToDrawing:
-    title: Atur Klik Kiri ke Mode "Coretan"
-    description: |
-      Yaitu klik kiri mouse beralih ke mode coretan, ada tombol yang sesuai di bilah alat
+    title: Alihkan Mode Gambar
+    description: Gambar dengan tombol kiri. Tekan lagi untuk kembali ke mode Pilih.
   checkoutLeftMouseToConnectAndCutting:
     title: Atur Klik Kiri ke Mode "Hubungkan/Potong"
-    description: |
-      Yaitu klik kiri mouse beralih ke mode hubungkan/potong, ada tombol yang sesuai di bilah alat
+    description: Hubungkan simpul atau potong garis dengan tombol kiri.
   checkoutLeftMouseToConnectAndCuttingOnlyPressed:
     title: Atur Klik Kiri ke Mode "Hubungkan/Potong" (Hanya Saat Ditekan)
     description: |
@@ -2347,6 +2405,16 @@ keyBinds:
   alignTopToBottomNoSpace:
     title: Tumpuk Rapat ke Bawah dalam Satu Kolom
     description: Numpad vertikal dari atas ke bawah menyusun satu string
+  arrangeSelectedVertical:
+    title: Susun Vertikal
+  arrangeSelectedHorizontal:
+    title: Susun Horizontal
+  increaseSelectedNodeSpacing:
+    title: Perbesar Jarak Antarnode
+    description: Geser node terpilih menjauh dari pusat pilihan.
+  decreaseSelectedNodeSpacing:
+    title: Perkecil Jarak Antarnode
+    description: Dekatkan node terpilih dengan tetap menjaga jarak minimum.
   layoutToSquare:
     title: Susunan Persegi Longgar
   layoutToTightSquare:
@@ -2435,7 +2503,7 @@ keyBinds:
     description: Tukar informasi detail dan konten aktual semua node teks yang dipilih, tekan e 5 kali berturut-turut, terutama digunakan untuk konten teks yang ditempel langsung ingin ditulis ke informasi detail
   createTwinTextNode:
     title: Buat Node Teks Kembar
-    description: Buat node kembar untuk semua node teks yang dipilih. Node baru akan menyinkronkan konten dengan node asli. Tekan Shift+Y untuk memicu.
+    description: Buat node kembar untuk semua node teks yang dipilih. Node baru akan menyinkronkan konten dengan node asli. Pintasan bawaan adalah Shift+Y.
   reverseImageColors:
     title: Balikkan Warna Gambar
     description: Balikkan warna gambar yang dipilih (ubah latar belakang putih menjadi hitam, atau sebaliknya)

@@ -730,6 +730,7 @@ export class AutoLayoutFastTree {
     for (const node of treeNodes) {
       this.project.entityMoveManager.moveEntityUtils(node, delta);
     }
+    this.project.autoLayout.clearPreservedLayout(treeNodes);
     // ------- 恢复完毕
   }
 

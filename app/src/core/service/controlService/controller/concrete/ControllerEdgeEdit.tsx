@@ -32,8 +32,7 @@ export class ControllerEdgeEditClass extends ControllerClass {
     if (firstHoverEdge) {
       // 编辑边上的文字
       this.editEdgeText(firstHoverEdge);
-    }
-    if (firstHoverMultiTargetEdge) {
+    } else if (firstHoverMultiTargetEdge) {
       this.editMultiTargetEdgeText(firstHoverMultiTargetEdge);
     }
 

@@ -1,3 +1,4 @@
+import type { Project } from "@/core/Project";
 import { Settings } from "@/core/service/Settings";
 import { StageObject } from "@/core/stage/stageObject/abstract/StageObject";
 import type { Section } from "@/core/stage/stageObject/entity/Section";
@@ -11,6 +12,8 @@ import { DetailsManager } from "../tools/entityDetailsManager";
  * 实体
  */
 export abstract class Entity extends StageObject {
+  private static readonly collisionPasses = new WeakMap<Project, { pending: Entity[]; moved: Set<Entity> }>();
+
   /**
    * 将某个物体移动某个距离
    * @param delta
@@ -104,16 +107,29 @@ export abstract class Entity extends StageObject {
     if (!Settings.isEnableEntityCollision || this.project.sectionMoveDepth > 0) {
       return;
     }
-    for (const entity of this.project.stageManager.getEntities()) {
-      if (entity === this) {
-        continue;
+
+    const currentPass = Entity.collisionPasses.get(this.project);
+    if (currentPass) {
+      currentPass.pending.push(this);
+      return;
+    }
+
+    const pass = { pending: [this], moved: new Set<Entity>([this]) };
+    Entity.collisionPasses.set(this.project, pass);
+    try {
+      const entities = this.project.stageManager.getEntities();
+      for (const source of pass.pending) {
+        for (const entity of entities) {
+          if (!pass.moved.has(entity)) source.collideWithOtherEntity(entity);
+        }
       }
-      this.collideWithOtherEntity(entity);
+    } finally {
+      Entity.collisionPasses.delete(this.project);
     }
   }
 
   /**
-   * 与其他实体碰撞，调整位置；能够递归传递
+   * 与其他实体碰撞，调整位置
    * @param other 其他实体
    */
   protected collideWithOtherEntity(other: Entity) {
@@ -137,6 +153,8 @@ export abstract class Entity extends StageObject {
         ? selfRectangle.bottom - otherRectangle.top
         : selfRectangle.top - otherRectangle.bottom;
     const moveDelta = Math.abs(dx) < Math.abs(dy) ? new Vector(dx, 0) : new Vector(0, dy);
+    // 分组框会在子节点移动后重算大小，可能与已经推开的节点再次重叠。
+    Entity.collisionPasses.get(this.project)?.moved.add(other);
     other.move(moveDelta);
   }
   /**

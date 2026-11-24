@@ -44,17 +44,7 @@ export class MultiTargetUndirectedEdgeRenderer {
       : edge.color.equals(Color.Transparent)
         ? this.project.stageStyleManager.currentStyle.StageObjectBorder
         : edge.color;
-    // 画文字
-    if (edge.text !== "") {
-      // 画文字
-      this.project.textRenderer.renderMultiLineTextFromCenter(
-        edge.text,
-        this.project.renderer.transformWorld2View(centerLocation),
-        Renderer.FONT_SIZE * this.project.camera.currentScale,
-        Infinity,
-        edgeColor,
-      );
-    }
+    this.project.edgeRenderer.renderLabel(edge, centerLocation, Renderer.FONT_SIZE, edgeColor);
     if (edge.renderType === "line") {
       // if (edge.associationList.length === 2) {
       //   if (edge.centerRate.nearlyEqual(new Vector(0.5, 0.5), 0.3)) {

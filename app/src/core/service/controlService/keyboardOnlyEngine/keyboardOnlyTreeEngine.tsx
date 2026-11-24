@@ -1,14 +1,14 @@
 import { Project, service } from "@/core/Project";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
-import { Edge } from "@/core/stage/stageObject/association/Edge";
+import { Edge, type PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { toast } from "sonner";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
+import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { Direction } from "@/types/directions";
 import { showTreeValidationErrors } from "@/utils/treeValidation";
 import { ProgressNumber, Vector } from "@graphif/data-structures";
 import { Line, Rectangle } from "@graphif/shapes";
-import { v4 } from "uuid";
 import { LineEffect } from "../../feedbackService/effectEngine/concrete/LineEffect";
 import { RectangleRenderEffect } from "../../feedbackService/effectEngine/concrete/RectangleRenderEffect";
 import { SoundService } from "../../feedbackService/SoundService";
@@ -115,11 +115,13 @@ export class KeyboardOnlyTreeEngine {
    * @param node
    * @returns
    */
-  public getNodePreDirection(node: ConnectableEntity): "right" | "left" | "down" | "up" {
-    if (this.preDirectionCacheMap.has(node.uuid)) {
-      const direction = this.preDirectionCacheMap.get(node.uuid)!;
-      return direction;
-    }
+  public getNodePreDirection(
+    node: ConnectableEntity,
+    layout = this.project.autoLayout.getPreservedLayout(node),
+  ): "right" | "left" | "down" | "up" {
+    const explicit = this.preDirectionCacheMap.get(node.uuid);
+    if (explicit) return explicit;
+    if (layout === "dag" || layout === "fishbone") return "right";
     const incomingEdges = this.project.graphMethods.getIncomingEdges(node);
     if (incomingEdges.length === 0) {
       return "right";
@@ -294,12 +296,122 @@ export class KeyboardOnlyTreeEngine {
     if (!this.project.keyboardOnlyEngine.isOpenning()) {
       return;
     }
+    this.generateChildNode(defaultText, selectAll, editEdgeFirst);
+  }
+
+  private positionGraphChild(
+    parent: ConnectableEntity,
+    child: TextNode,
+    direction: "right" | "left" | "down" | "up",
+    layout: PreservedGraphLayout,
+  ) {
+    const anchor = parent.collisionBox.getRectangle();
+    const rect = child.collisionBox.getRectangle();
+    const horizontal = direction === "right" || direction === "left";
+    let outward = 1;
+    if (horizontal) {
+      const right = direction === "right";
+      rect.location = new Vector(
+        right ? anchor.right + 120 : anchor.left - 120 - rect.width,
+        anchor.center.y - rect.height / 2,
+      );
+      const successors = this.project.graphMethods
+        .getOutgoingEdges(parent)
+        .filter(
+          (edge) => edge.graphLayout === layout && edge.target !== parent && !edge.target.isHiddenBySectionCollapse,
+        )
+        .map((edge) => edge.target.collisionBox.getRectangle())
+        .filter((box) => (right ? box.left >= anchor.right : box.right <= anchor.left));
+      if (layout === "dag" && successors.length > 0) {
+        rect.location.x = right
+          ? Math.min(...successors.map((box) => box.left))
+          : Math.max(...successors.map((box) => box.right)) - rect.width;
+        rect.location.y = anchor.top;
+      }
+      const ribs =
+        layout === "fishbone" ? successors.filter((box) => Math.abs(box.center.y - anchor.center.y) > 1) : [];
+      const nearest = ribs.reduce<Rectangle | undefined>(
+        (a, b) => (!a || Math.abs(b.center.y - anchor.center.y) < Math.abs(a.center.y - anchor.center.y) ? b : a),
+        undefined,
+      );
+      if (nearest) {
+        outward = nearest.center.y < anchor.center.y ? -1 : 1;
+        rect.location.x = right ? nearest.left : nearest.right - rect.width;
+        const sameSide = ribs.filter((box) => outward * (box.center.y - anchor.center.y) > 0);
+        rect.location.y =
+          outward > 0
+            ? Math.max(...sameSide.map((box) => box.bottom)) + 40
+            : Math.min(...sameSide.map((box) => box.top)) - 40 - rect.height;
+      } else if (layout === "fishbone" && successors.length) {
+        rect.location.y = anchor.bottom + 72;
+      }
+    } else {
+      rect.location = new Vector(
+        anchor.center.x - rect.width / 2,
+        direction === "down" ? anchor.bottom + 50 : anchor.top - 50 - rect.height,
+      );
+    }
+
+    const ancestors = new Set<string>();
+    for (let section = parent.parentSection; section; section = section.parentSection) ancestors.add(section.uuid);
+    const obstacles = this.project.stageManager
+      .getEntities()
+      .filter((entity) => !entity.isHiddenBySectionCollapse && !ancestors.has(entity.uuid))
+      .map((entity) => entity.collisionBox.getRectangle());
+    // 挪开新节点，避免碰撞处理推移已有节点。
+    for (;;) {
+      const candidate = rect.expandFromCenter(20);
+      const obstacle = obstacles.find((box) => candidate.isCollideWith(box));
+      if (!obstacle) break;
+      if (!horizontal) rect.location.x = obstacle.right + 40;
+      else rect.location.y = outward > 0 ? obstacle.bottom + 40 : obstacle.top - 40 - rect.height;
+    }
+    child.moveTo(rect.location);
+  }
+
+  private connectGrowthNodes(
+    source: ConnectableEntity,
+    target: ConnectableEntity,
+    direction: "right" | "left" | "down" | "up",
+    layout?: PreservedGraphLayout,
+  ): Edge[] {
+    if (layout) this.project.nodeConnector.connectConnectableEntity(source, target);
+    else this.project.stageManager.connectEntity(source, target);
+    const edges = this.project.graphMethods.getEdgesBetween(source, target);
+    const directions = { right: Direction.Right, left: Direction.Left, up: Direction.Up, down: Direction.Down };
+    this.project.stageManager.changeEdgesConnectLocation(edges, directions[direction], true);
+    this.project.stageManager.changeEdgesConnectLocation(edges, this.getOppositeDirection(directions[direction]));
+    if (layout && edges.length) {
+      for (const edge of edges) edge.graphLayout = layout;
+      this.project.historyManager.recordStep();
+    }
+    return edges;
+  }
+
+  private layoutAfterGrowth(roots: ConnectableEntity[], layout?: PreservedGraphLayout): boolean {
+    if (layout) return true;
+    if (roots.length !== 1) {
+      if (Settings.autoLayoutWhenTreeGenerate) toast.warning("当前结构不符合树形结构：无法确定唯一的根节点");
+      return false;
+    }
+    const root = roots[0];
+    if (this.project.autoLayout.hasPreservedLayoutInTree(root)) return true;
+    const validation = this.project.graphMethods.validateTreeStructure(root, true);
+    if (Settings.autoLayoutWhenTreeGenerate) {
+      if (validation.isValid) this.project.autoAlign.autoLayoutSelectedFastTreeMode(root);
+      else showTreeValidationErrors(validation, "warning");
+    }
+    return validation.isValid;
+  }
+
+  generateChildNode(defaultText = "", selectAll = true, editEdgeFirst = false) {
     const rootNode = this.project.stageManager.getConnectableEntity().find((node) => node.isSelected);
     if (!rootNode) return;
     this.project.camera.clearMoveCommander();
     this.project.camera.speed = Vector.getZero();
     // 确定创建方向：默认向右
-    const direction = this.getNodePreDirection(rootNode);
+    const layout = this.project.autoLayout.getPreservedLayout(rootNode);
+    const direction = this.getNodePreDirection(rootNode, layout);
 
     // 检测生长探测线上是否有可连接实体（线段相交检测，比点命中范围更大）
     {
@@ -308,48 +420,11 @@ export class KeyboardOnlyTreeEngine {
         : null;
       if (targetEntity !== null) {
         // 有可连接实体且尚无连线：直接连线，不新建节点
-        this.project.stageManager.connectEntity(rootNode, targetEntity);
-        const newEdges = this.project.graphMethods.getEdgesBetween(rootNode, targetEntity);
-        // 根据方向设置边的连接位置
-        switch (direction) {
-          case "right":
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Right, true);
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Left);
-            break;
-          case "left":
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Left, true);
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Right);
-            break;
-          case "down":
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Down, true);
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Up);
-            break;
-          case "up":
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Up, true);
-            this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Down);
-            break;
-        }
+        const newEdges = this.connectGrowthNodes(rootNode, targetEntity, direction, layout);
         this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(rootNode, targetEntity));
         SoundService.play.treeGenerateDeepSoundFile();
         // 连接成功后触发树形格式化布局（与新建节点逻辑一致）
-        const rootNodeParents = this.project.graphMethods.getRoots(rootNode, true);
-        if (rootNodeParents.length === 1) {
-          const rootNodeParent = rootNodeParents[0];
-          const validationResult = this.project.graphMethods.validateTreeStructure(rootNodeParent, true);
-          if (validationResult.isValid) {
-            if (Settings.autoLayoutWhenTreeGenerate) {
-              this.project.autoAlign.autoLayoutSelectedFastTreeMode(rootNodeParent);
-            }
-          } else {
-            if (Settings.autoLayoutWhenTreeGenerate) {
-              showTreeValidationErrors(validationResult, "warning");
-            }
-          }
-        } else {
-          if (Settings.autoLayoutWhenTreeGenerate) {
-            toast.warning("当前结构不符合树形结构：无法确定唯一的根节点");
-          }
-        }
+        this.layoutAfterGrowth(this.project.graphMethods.getRoots(rootNode, true), layout);
         if (editEdgeFirst && newEdges.length > 0) {
           this.project.controllerUtils.editEdgeText(newEdges[0]);
         }
@@ -440,6 +515,7 @@ export class KeyboardOnlyTreeEngine {
 
     // 设置新节点的字体大小
     newNode.setFontScaleLevel(newFontScaleLevel);
+    if (layout) this.positionGraphChild(rootNode, newNode, direction, layout);
     this.project.stageManager.add(newNode);
 
     // 如果是在框里，则把新生长的节点也纳入到框里
@@ -448,57 +524,18 @@ export class KeyboardOnlyTreeEngine {
       this.project.sectionInOutManager.goInSection([newNode], fatherSection);
     }
 
-    // 连接节点
-    this.project.stageManager.connectEntity(rootNode, newNode);
-    const newEdges = this.project.graphMethods.getEdgesBetween(rootNode, newNode);
-
-    // 根据方向设置边的连接位置
-    switch (direction) {
-      case "right":
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Right, true);
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Left);
-        break;
-      case "left":
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Left, true);
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Right);
-        break;
-      case "down":
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Down, true);
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Up);
-        break;
-      case "up":
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Up, true);
-        this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Down);
-        break;
-    }
-
     // 继承父节点颜色
     if (Settings.treeGenerateInheritParentColor && rootNode instanceof TextNode) {
       newNode.color = rootNode.color.clone();
     }
+    const newEdges = this.connectGrowthNodes(rootNode, newNode, direction, layout);
 
     // 重新排列树形节点
     const rootNodeParents = this.project.graphMethods.getRoots(rootNode, true);
-    if (rootNodeParents.length === 1) {
-      const rootNodeParent = rootNodeParents[0];
-      const validationResult = this.project.graphMethods.validateTreeStructure(rootNodeParent, true);
-      if (validationResult.isValid) {
-        if (Settings.autoLayoutWhenTreeGenerate) {
-          this.project.autoAlign.autoLayoutSelectedFastTreeMode(rootNodeParent);
-        }
-        // 更新选择状态
-        rootNodeParent.isSelected = false;
-        newNode.isSelected = true;
-        rootNode.isSelected = false;
-      } else {
-        if (Settings.autoLayoutWhenTreeGenerate) {
-          showTreeValidationErrors(validationResult, "warning");
-        }
-      }
-    } else {
-      if (Settings.autoLayoutWhenTreeGenerate) {
-        toast.warning("当前结构不符合树形结构：无法确定唯一的根节点");
-      }
+    if (this.layoutAfterGrowth(rootNodeParents, layout)) {
+      if (rootNodeParents[0]) rootNodeParents[0].isSelected = false;
+      newNode.isSelected = true;
+      rootNode.isSelected = false;
     }
 
     // 特效
@@ -547,114 +584,91 @@ export class KeyboardOnlyTreeEngine {
     if (!this.project.keyboardOnlyEngine.isOpenning()) {
       return;
     }
-    const currentSelectNode = this.project.stageManager.getConnectableEntity().find((node) => node.isSelected);
+    this.generateSiblingNode();
+  }
+
+  canGenerateSiblingNode() {
+    return !!this.getSiblingGrowthSource();
+  }
+
+  private getSiblingGrowthSource() {
+    if (Settings.viewerMode) return;
+    const selected = this.project.stageManager.getConnectableEntity().filter((node) => node.isSelected);
+    if (selected.length !== 1 || selected[0] instanceof Section || selected[0].nearestLockedAncestorSection) return;
+    return selected[0];
+  }
+
+  generateSiblingNode(above = false) {
+    const currentSelectNode = this.getSiblingGrowthSource();
     if (!currentSelectNode) return;
     this.project.camera.clearMoveCommander();
     this.project.camera.speed = Vector.getZero();
-    // 找到自己的父节点
-    const parents = this.project.graphMethods.nodeParentArray(currentSelectNode);
-    if (parents.length === 0) return;
-    if (parents.length !== 1) return;
-    const parent = parents[0];
-    // 获取预方向
-    const preDirection = this.getNodePreDirection(parent);
-    // 自动命名新节点（如果当前选中的同级节点有标号特征。）
-    let nextNodeName = this.project.stageUtils.replaceAutoNameTemplate(
-      Settings.autoNamerTreeNodeTemplate,
-      this.project.stageManager.getTextNodes()[0] ?? currentSelectNode,
-    );
-    let isAddNewNumberName = false;
-    if (currentSelectNode instanceof TextNode) {
-      const newName = extractNumberAndReturnNext(currentSelectNode.text);
-      if (newName) {
-        nextNodeName = newName;
-        isAddNewNumberName = true;
-      }
+    const parentEdges = new Map<ConnectableEntity, Edge>();
+    for (const edge of this.project.graphMethods.getIncomingEdges(currentSelectNode)) {
+      if (edge.source !== currentSelectNode && !parentEdges.has(edge.source)) parentEdges.set(edge.source, edge);
     }
-    // 当前选择的节点的正下方创建一个节点
-    // 找到创建点
-    const newLocation = currentSelectNode.collisionBox.getRectangle().leftBottom.add(new Vector(0, 1));
-
-    // 计算新节点的字体大小
-    const newFontScaleLevel = this.calculateNewNodeFontScaleLevel(parent, preDirection);
+    const anchor = currentSelectNode.collisionBox.getRectangle();
+    const numberedName =
+      !above && currentSelectNode instanceof TextNode ? extractNumberAndReturnNext(currentSelectNode.text) : "";
 
     const newNode = new TextNode(this.project, {
-      text: nextNodeName,
-      details: [],
-      uuid: v4(),
-      collisionBox: new CollisionBox([
-        new Rectangle(
-          newLocation.clone(),
-          new Vector(parent instanceof TextNode ? parent.collisionBox.getRectangle().width : 100, 100),
+      text:
+        numberedName ||
+        this.project.stageUtils.replaceAutoNameTemplate(
+          Settings.autoNamerTreeNodeTemplate,
+          this.project.stageManager.getTextNodes()[0] ?? currentSelectNode,
         ),
-      ]),
-      sizeAdjust: parent instanceof TextNode ? (parent.sizeAdjust as "auto" | "manual") : "auto",
+      collisionBox: new CollisionBox([new Rectangle(anchor.leftTop.clone(), new Vector(anchor.width, 100))]),
+      sizeAdjust:
+        currentSelectNode instanceof TextNode && currentSelectNode.sizeAdjust === "manual" ? "manual" : "auto",
     });
 
-    // 设置新节点的字体大小
-    newNode.setFontScaleLevel(newFontScaleLevel);
+    if (currentSelectNode instanceof TextNode) newNode.setFontScaleLevel(currentSelectNode.fontScaleLevel);
+    const rect = newNode.collisionBox.getRectangle();
+    const gap = 20;
+    rect.location = new Vector(anchor.left, above ? anchor.top - gap - rect.height : anchor.bottom + gap);
+    const ancestorSections = new Set<string>();
+    for (let section = currentSelectNode.parentSection; section; section = section.parentSection) {
+      ancestorSections.add(section.uuid);
+    }
+    const obstacles = this.project.stageManager
+      .getEntities()
+      .filter((entity) => !entity.isHiddenBySectionCollapse && !ancestorSections.has(entity.uuid))
+      .map((entity) => entity.collisionBox.getRectangle());
+    for (;;) {
+      const candidate = rect.expandFromCenter(gap / 2);
+      const obstacle = obstacles.find((box) => candidate.isCollideWith(box));
+      if (!obstacle) break;
+      rect.location.y = above ? obstacle.top - gap - rect.height : obstacle.bottom + gap;
+    }
+    newNode.moveTo(rect.location);
     this.project.stageManager.add(newNode);
-    // 如果是在框里，则把新生长的节点也纳入到框里
-    const fatherSection = parent.parentSection;
-    if (fatherSection) {
-      this.project.sectionInOutManager.goInSection([newNode], fatherSection);
+    if (currentSelectNode.parentSection) {
+      this.project.sectionInOutManager.goInSection([newNode], currentSelectNode.parentSection);
     }
-    // 连接节点
-    this.project.stageManager.connectEntity(parent, newNode);
-
-    const newEdges = this.project.graphMethods.getEdgesBetween(parent, newNode);
-
-    if (preDirection === "right") {
-      // 右侧发出 左侧接收
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Right, true);
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Left);
-    } else if (preDirection === "left") {
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Left, true);
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Right);
-    } else if (preDirection === "down") {
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Down, true);
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Up);
-    } else if (preDirection === "up") {
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Up, true);
-      this.project.stageManager.changeEdgesConnectLocation(newEdges, Direction.Down);
-    }
-
-    // 继承父节点颜色
+    const parent = parentEdges.size === 1 ? parentEdges.keys().next().value : undefined;
     if (Settings.treeGenerateInheritParentColor && parent instanceof TextNode) {
       newNode.color = parent.color.clone();
     }
-    // 重新排列树形节点
-    const rootNodeParents = this.project.graphMethods.getRoots(parent, true);
-    if (rootNodeParents.length === 1) {
-      const rootNodeParent = rootNodeParents[0];
-      const validationResult = this.project.graphMethods.validateTreeStructure(rootNodeParent, true);
-      if (validationResult.isValid) {
-        if (Settings.autoLayoutWhenTreeGenerate) {
-          this.project.autoAlign.autoLayoutSelectedFastTreeMode(rootNodeParent);
-        }
-        // 更新选择状态
-        rootNodeParent.isSelected = false;
-        newNode.isSelected = true;
-        currentSelectNode.isSelected = false;
-      } else {
-        if (Settings.autoLayoutWhenTreeGenerate) {
-          showTreeValidationErrors(validationResult, "warning");
-        }
+    const layout = this.project.autoLayout.getPreservedLayout(currentSelectNode);
+    for (const [source, edge] of parentEdges) {
+      this.project.nodeConnector.connectConnectableEntity(
+        source,
+        newNode,
+        "",
+        [edge.targetRectangleRate.x, edge.targetRectangleRate.y],
+        [edge.sourceRectangleRate.x, edge.sourceRectangleRate.y],
+      );
+      for (const newEdge of this.project.graphMethods.getEdgesBetween(source, newNode)) {
+        newEdge.graphLayout = edge.graphLayout ?? layout;
       }
-    } else {
-      if (Settings.autoLayoutWhenTreeGenerate) {
-        toast.warning("当前结构不符合树形结构：无法确定唯一的根节点");
-      }
+      this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(source, newNode));
     }
-    this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(parent, newNode));
+    this.project.historyManager.recordStep();
+    currentSelectNode.isSelected = false;
+    newNode.isSelected = true;
     SoundService.play.treeGenerateBroadSoundFile();
-    setTimeout(
-      () => {
-        // 防止把反引号给输入进去
-        this.project.controllerUtils.editTextNode(newNode, !isAddNewNumberName);
-      },
-      (1000 / 60) * 6,
-    );
+    setTimeout(() => this.project.controllerUtils.editTextNode(newNode, !numberedName, false), (1000 / 60) * 6);
     // 根据设置决定镜头行为
     switch (Settings.treeGenerateCameraBehavior) {
       case "none":
@@ -664,18 +678,16 @@ export class KeyboardOnlyTreeEngine {
         // 镜头移动向新创建的节点
         this.project.camera.bombMove(newNode.collisionBox.getRectangle().center, 5);
         break;
-      case "resetToTree":
+      case "resetToTree": {
         // 重置视野，使视野覆盖当前树形结构的外接矩形
-        if (rootNodeParents.length === 1) {
-          const rootNodeParent = rootNodeParents[0];
-          const allNodes = this.project.graphMethods.getSuccessorSet(rootNodeParent, true);
-          const treeBoundingRect = Rectangle.getBoundingRectangle(
-            allNodes.map((node) => node.collisionBox.getRectangle()),
-            10, // 添加一些 padding
-          );
-          this.project.camera.resetByRectangle(treeBoundingRect);
-        }
+        const roots = this.project.graphMethods.getRoots(currentSelectNode, true);
+        const allNodes =
+          roots.length === 1 ? this.project.graphMethods.getSuccessorSet(roots[0], true) : [currentSelectNode];
+        this.project.camera.resetByRectangle(
+          Rectangle.getBoundingRectangle([...allNodes.map((node) => node.collisionBox.getRectangle()), rect], 10),
+        );
         break;
+      }
     }
   }
 

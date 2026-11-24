@@ -193,15 +193,7 @@ export const settingsSchema = z.object({
   rightClickConnectEdgeType: z.union([z.literal("normal"), z.literal("arc")]).default("arc"),
   defaultEdgeLineType: projectToolSettingSchemas.defaultEdgeLineType,
   defaultEdgeArrowType: projectToolSettingSchemas.defaultEdgeArrowType,
-  textNodeStartEditMode: z
-    .union([
-      z.literal("enter"),
-      z.literal("ctrlEnter"),
-      z.literal("altEnter"),
-      z.literal("shiftEnter"),
-      z.literal("space"),
-    ])
-    .default("enter"),
+  textNodeStartEditMode: z.union([z.literal("space"), z.literal("ctrlEnter"), z.literal("altEnter")]).default("space"),
   textNodeContentLineBreak: z
     .union([z.literal("enter"), z.literal("ctrlEnter"), z.literal("altEnter"), z.literal("shiftEnter")])
     .default("shiftEnter"),
@@ -253,7 +245,7 @@ export const settingsSchema = z.object({
   enableCollision: z.boolean().default(true),
   enableDragAlignToGrid: z.boolean().default(false),
   mouseLeftMode: z
-    .union([z.literal("selectAndMove"), z.literal("draw"), z.literal("connectAndCut")])
+    .union([z.literal("selectAndMove"), z.literal("drag"), z.literal("draw"), z.literal("connectAndCut")])
     .default("selectAndMove"),
   doubleClickEmptySpaceAction: z.union([z.literal("createTextNode"), z.literal("none")]).default("createTextNode"),
   soundEnabled: z.boolean().default(true),
@@ -962,6 +954,11 @@ const rawSettings = Object.fromEntries(await store.entries());
 // console.log(rawSettings);
 for (const [rawKey, rawValue] of Object.entries(rawSettings)) {
   if (!(rawKey in settingsSchema.shape)) {
+    continue;
+  }
+  if (rawKey === "textNodeStartEditMode" && (rawValue === "enter" || rawValue === "shiftEnter")) {
+    await store.set(rawKey, defaultSettings.textNodeStartEditMode);
+    await store.save();
     continue;
   }
   const settingSchema = settingsSchema.shape[rawKey as keyof typeof settingsSchema.shape];

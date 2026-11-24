@@ -37,6 +37,12 @@ export class ControllerCameraClass extends ControllerClass {
   private lastWheelPinchTime = 0;
   private lastZoomFeedbackTime = -Infinity;
 
+  public toggleMouseDragMode(): boolean {
+    if (this.project.controller.isCameraLocked || Settings.viewerMode || Settings.isClassroomMode) return false;
+    Settings.mouseLeftMode = Settings.mouseLeftMode === "drag" ? "selectAndMove" : "drag";
+    return true;
+  }
+
   public keydown: (event: KeyboardEvent) => void = (event: KeyboardEvent) => {
     if (this.project.controller.isCameraLocked) {
       return;
@@ -76,12 +82,13 @@ export class ControllerCameraClass extends ControllerClass {
     const point = new Vector(event.clientX, event.clientY);
     const spaceDrag =
       event.button === 0 && this.project.controller.pressingKeySet.has(" ") && Settings.enableSpaceKeyMouseLeftDrag;
-    const middleDrag = event.button === 1 && !event.ctrlKey && Settings.mouseRightDragBackground !== "moveCamera";
+    const middleDrag = event.button === 1 && !event.ctrlKey;
+    const handDrag = event.button === 0 && Settings.mouseLeftMode === "drag" && !Settings.viewerMode;
     const rightDrag =
       event.button === 2 &&
       Settings.mouseRightDragBackground === "moveCamera" &&
       this.project.stageManager.findEntityByLocation(this.project.renderer.transformView2World(point)) === null;
-    if (spaceDrag || middleDrag || rightDrag) {
+    if (spaceDrag || middleDrag || rightDrag || handDrag) {
       this.dragButton = event.button;
       this.lastDragPoint = point;
       this.isUsingMouseGrabMove = true;
@@ -138,21 +145,7 @@ export class ControllerCameraClass extends ControllerClass {
     if (!this.isUsingMouseGrabMove) {
       return;
     }
-    if (event.button === 0 && this.project.controller.pressingKeySet.has(" ")) {
-      if (this.isPreGrabbingWhenSpace) {
-        this.project.controller.setCursorName(CursorNameEnum.Grab);
-      }
-    }
-    if (event.button === 1) {
-      // 中键松开
-      this.project.controller.setCursorName(CursorNameEnum.Default);
-    }
-    if (event.button === 4) {
-      this.project.controller.setCursorName(CursorNameEnum.Default);
-    }
-    if (event.button === 2) {
-      this.project.controller.setCursorName(CursorNameEnum.Default);
-    }
+    this.project.controller.setCursorName(this.isPreGrabbingWhenSpace ? CursorNameEnum.Grab : CursorNameEnum.Default);
     this.isUsingMouseGrabMove = false;
     this.dragButton = null;
   };

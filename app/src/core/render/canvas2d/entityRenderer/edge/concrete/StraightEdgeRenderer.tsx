@@ -127,15 +127,7 @@ export class StraightEdgeRenderer extends EdgeRendererClass {
       scaledWidth,
     );
 
-    if (edge.text.trim() !== "") {
-      this.project.textRenderer.renderMultiLineTextFromCenterWithStroke(
-        edge.text,
-        this.project.renderer.transformWorld2View(straightBodyLine.midPoint()),
-        edge.textFontSize * this.project.camera.currentScale,
-        edgeColor,
-        this.project.stageStyleManager.currentStyle.Background,
-      );
-    }
+    this.project.edgeRenderer.renderLabel(edge, straightBodyLine.midPoint(), edge.textFontSize, edgeColor, "outlined");
     if (this.shouldRenderTargetArrow(edge)) {
       // 画箭头
       this.renderArrowHead(edge, direction, straightBodyLine.end.clone(), 8 * edgeWidth);
@@ -253,18 +245,10 @@ export class StraightEdgeRenderer extends EdgeRendererClass {
       scaledWidth,
     );
 
-    if (edge.text.trim() !== "") {
-      const edgeColor = edge.color.equals(Color.Transparent)
-        ? this.project.stageStyleManager.currentStyle.StageObjectBorder
-        : edge.color;
-      this.project.textRenderer.renderMultiLineTextFromCenterWithStroke(
-        edge.text,
-        this.project.renderer.transformWorld2View(shiftingMidPoint),
-        edge.textFontSize * this.project.camera.currentScale,
-        edgeColor,
-        this.project.stageStyleManager.currentStyle.Background,
-      );
-    }
+    const edgeColor = edge.color.equals(Color.Transparent)
+      ? this.project.stageStyleManager.currentStyle.StageObjectBorder
+      : edge.color;
+    this.project.edgeRenderer.renderLabel(edge, shiftingMidPoint, edge.textFontSize, edgeColor, "outlined");
     if (this.shouldRenderTargetArrow(edge)) {
       this.renderArrowHead(edge, arrowDirection, endPoint);
     }
@@ -291,18 +275,12 @@ export class StraightEdgeRenderer extends EdgeRendererClass {
         edge.target.collisionBox.getRectangle().leftCenter,
       );
     }
-    // 画文字
-    if (edge.text.trim() === "") {
-      // 没有文字的边
-      return;
-    }
-    this.project.textRenderer.renderTextFromCenter(
-      edge.text,
-      this.project.renderer.transformWorld2View(
-        edge.target.collisionBox.getRectangle().location.add(new Vector(0, -50)),
-      ),
-      edge.textFontSize * this.project.camera.currentScale,
+    this.project.edgeRenderer.renderLabel(
+      edge,
+      edge.target.collisionBox.getRectangle().location.add(new Vector(0, -50)),
+      edge.textFontSize,
       edgeColor,
+      "singleLine",
     );
   }
 

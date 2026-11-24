@@ -197,7 +197,6 @@ export class TextNodeRenderer {
     };
 
     const tabKey = getKeyById("generateNodeTreeWithDeepMode");
-    const backslashKey = getKeyById("generateNodeTreeWithBroadMode");
 
     const titleFontSize = 14;
     const keyFontSizeActive = 16;
@@ -262,14 +261,12 @@ export class TextNodeRenderer {
 
     // 获取进入编辑模式的快捷键设置
     const startEditMode = Settings.textNodeStartEditMode;
-    const startEditKeyMap: Record<string, string> = {
-      enter: "Enter",
+    const startEditKeyMap = {
       ctrlEnter: "Ctrl + Enter",
       altEnter: "Alt + Enter",
-      shiftEnter: "Shift + Enter",
       space: "Space",
     };
-    const startEditKey = startEditKeyMap[startEditMode] || "Enter";
+    const startEditKey = startEditKeyMap[startEditMode];
     const startEditTitle = i18next.t("editModeHint.startEditTitle", { ns: "common", defaultValue: "" });
 
     // 渲染进入编辑模式提示（在顶部更上方）
@@ -440,31 +437,20 @@ export class TextNodeRenderer {
       this.project.textRenderer.renderText(rightKey, rightKeyPos, keyFontSizeInactive, hintColor);
     }
 
-    // 反斜杠（\）广度生长：渲染在节点的左下角，远离四个方向提示
-    const parents = this.project.graphMethods.nodeParentArray(node);
-    if (parents.length === 1) {
-      // 将提示渲染在节点左下角，间距较小以贴近节点
-      const CORNER_GAP_X = 28;
-      const CORNER_GAP_Y = 28;
-      // 渲染在节点左下角
-      const previewViewPos = viewRect.leftBottom.add(new Vector(-CORNER_GAP_X, CORNER_GAP_Y));
-
-      // 获取反斜杠快捷键的标题
-      const backslashTitle = getKeyTitle("generateNodeTreeWithBroadMode");
-      const backslashKeySize = getTextSize(backslashKey, keyFontSizeInactive);
-      const backslashTitleSize = backslashTitle ? getTextSize(backslashTitle, titleFontSize) : { x: 0, y: 0 };
-
-      // 渲染标题（第一行）
-      if (backslashTitle) {
-        const backslashTitlePos = previewViewPos.subtract(
-          new Vector(backslashTitleSize.x, backslashKeySize.y / 2 + backslashTitleSize.y),
-        );
-        this.project.textRenderer.renderText(backslashTitle, backslashTitlePos, titleFontSize, hintColor);
-      }
-      // 渲染快捷键（第二行）
-      const backslashKeyPos = previewViewPos.subtract(new Vector(backslashKeySize.x, backslashKeySize.y / 2));
-      this.project.textRenderer.renderText(backslashKey, backslashKeyPos, keyFontSizeInactive, hintColor);
+    if (!this.project.keyboardOnlyTreeEngine.canGenerateSiblingNode()) return;
+    const siblingKeyBind = allUIKeyBinds.find((binding) => binding.id === "generateNodeTreeWithBroadMode");
+    if (!siblingKeyBind?.isEnabled) return;
+    const siblingPosition = viewRect.leftBottom.add(new Vector(-GAP, GAP));
+    const siblingKey = formatKeyBindSequenceToString(siblingKeyBind.key, "+", ",");
+    const siblingKeySize = getTextSize(siblingKey, keyFontSizeInactive);
+    const siblingTitle = getKeyTitle(siblingKeyBind.id);
+    if (siblingTitle) {
+      const titleSize = getTextSize(siblingTitle, titleFontSize);
+      const titlePos = siblingPosition.subtract(new Vector(titleSize.x, siblingKeySize.y / 2 + titleSize.y));
+      this.project.textRenderer.renderText(siblingTitle, titlePos, titleFontSize, hintColor);
     }
+    const keyPos = siblingPosition.subtract(new Vector(siblingKeySize.x, siblingKeySize.y / 2));
+    this.project.textRenderer.renderText(siblingKey, keyPos, keyFontSizeInactive, hintColor);
   }
 
   /**

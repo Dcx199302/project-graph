@@ -124,6 +124,33 @@ export class EdgeRenderer {
     });
   }
 
+  renderLabel(
+    edge: Pick<Edge, "uuid" | "text">,
+    center: Vector,
+    fontSize: number,
+    color: Color,
+    style?: "outlined" | "singleLine",
+  ) {
+    const viewCenter = this.project.renderer.transformWorld2View(center);
+    const viewFontSize = fontSize * this.project.camera.currentScale;
+    if (this.project.controllerUtils.positionEdgeEditor(edge.uuid, viewCenter, viewFontSize, color)) return;
+    if (edge.text.trim() === "") return;
+
+    if (style === "outlined") {
+      this.project.textRenderer.renderMultiLineTextFromCenterWithStroke(
+        edge.text,
+        viewCenter,
+        viewFontSize,
+        color,
+        this.project.stageStyleManager.currentStyle.Background,
+      );
+    } else if (style === "singleLine") {
+      this.project.textRenderer.renderTextFromCenter(edge.text, viewCenter, viewFontSize, color);
+    } else {
+      this.project.textRenderer.renderMultiLineTextFromCenter(edge.text, viewCenter, viewFontSize, Infinity, color);
+    }
+  }
+
   /**
    * 当一个内部可连接实体被外部连接但它的父级section折叠了
    * 通过这个函数能获取它的最小非折叠父级

@@ -7,6 +7,8 @@ import _ from "lodash";
 import { toast } from "sonner";
 
 abstract class HistoryManagerAbs {
+  public abstract readonly canUndo: boolean;
+  public abstract readonly canRedo: boolean;
   public abstract recordStep(): void;
   public abstract undo(): void;
   public abstract redo(): void;
@@ -15,6 +17,13 @@ abstract class HistoryManagerAbs {
 }
 
 class HistoryManagerTimeEfficient extends HistoryManagerAbs {
+  get canUndo() {
+    return this.currentIndex >= 0;
+  }
+
+  get canRedo() {
+    return this.currentIndex < this.history.length - 1;
+  }
   /**
    * 初始化的舞台数据
    */
@@ -87,7 +96,7 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
    * 撤销
    */
   undo() {
-    if (this.currentIndex >= 0) {
+    if (this.canUndo) {
       this.currentIndex--;
       this.project.stage = this.get(this.currentIndex);
       this.project.stageManager.updateReferences();
@@ -124,7 +133,7 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
    * 反撤销
    */
   redo() {
-    if (this.currentIndex < this.history.length - 1) {
+    if (this.canRedo) {
       this.currentIndex++;
       this.project.stage = this.get(this.currentIndex);
       this.project.stageManager.updateReferences();
@@ -191,6 +200,13 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
 }
 
 class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
+  get canUndo() {
+    return this.currentIndex >= 0;
+  }
+
+  get canRedo() {
+    return this.currentIndex < this.deltas.length - 1;
+  }
   /**
    * 历史记录列表数组
    * 每一项都是变化的delta，不是完整的舞台数据！
@@ -284,7 +300,7 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
    */
   undo() {
     // currentIndex 最小为 -1
-    if (this.currentIndex >= 0) {
+    if (this.canUndo) {
       this.currentIndex--;
       this.project.stage = this.get(this.currentIndex);
       this.project.stageManager.updateReferences();
@@ -315,7 +331,7 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
    * 反撤销
    */
   redo() {
-    if (this.currentIndex < this.deltas.length - 1) {
+    if (this.canRedo) {
       this.currentIndex++;
       this.project.stage = this.get(this.currentIndex);
       this.project.stageManager.updateReferences();
@@ -387,6 +403,13 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
  */
 @service("historyManager")
 export class HistoryManager extends HistoryManagerAbs {
+  get canUndo() {
+    return this.currentManager.canUndo;
+  }
+
+  get canRedo() {
+    return this.currentManager.canRedo;
+  }
   private memoryEfficient: HistoryManagerAbs;
   private timeEfficient: HistoryManagerAbs;
   private readonly unwatchHistoryManagerMode: () => void;

@@ -32,6 +32,42 @@ describe("entity collision separation", () => {
     expect(first.isCollideWith(second)).toBe(false);
     expect(moves).toBe(1);
   });
+
+  it("pushes a chain of neighbors without moving an entity twice in one pass", () => {
+    type Collider = Entity & { pushNeighbors(): void };
+    const entities: Collider[] = [];
+    const project = { sectionMoveDepth: 0, stageManager: { getEntities: () => entities } };
+    const create = (x: number, canMove = true) => {
+      const rectangle = new Rectangle(new Vector(x, 0), new Vector(10, 10));
+      const entity = Object.assign(Object.create(Entity.prototype), {
+        project,
+        collisionBox: { getRectangle: () => rectangle },
+        pushNeighbors: Reflect.get(Entity.prototype, "updateOtherEntityLocationByMove"),
+        move: vi.fn(function (this: Collider, delta: Vector) {
+          if (canMove) rectangle.location = rectangle.location.add(delta);
+          this.pushNeighbors();
+        }),
+      }) as Collider;
+      entities.push(entity);
+      return entity;
+    };
+    const source = create(0);
+    const neighbor = create(5);
+    const fixed = create(15, false);
+    const last = create(24);
+
+    source.pushNeighbors();
+
+    expect(source.move).not.toHaveBeenCalled();
+    expect(neighbor.move).toHaveBeenCalledExactlyOnceWith(new Vector(5, 0));
+    expect(fixed.move).toHaveBeenCalledExactlyOnceWith(new Vector(5, 0));
+    expect(last.move).toHaveBeenCalledExactlyOnceWith(new Vector(1, 0));
+
+    source.pushNeighbors();
+    expect(fixed.move).toHaveBeenCalledTimes(1);
+    neighbor.pushNeighbors();
+    expect(fixed.move).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("section locking", () => {

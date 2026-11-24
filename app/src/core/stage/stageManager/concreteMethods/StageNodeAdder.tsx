@@ -34,6 +34,7 @@ export class NodeAdder {
     shouldRecordHistory = true,
     options?: {
       overrideFontScaleLevel?: number;
+      getTopLeft?: (size: Vector) => Vector;
     },
   ): Promise<string> {
     const autoFillColor = this.getAutoColor();
@@ -62,8 +63,8 @@ export class NodeAdder {
         node.setFontScaleLevel(autoLevel);
       }
     }
-    // 将node本身向左上角移动，使其居中
-    node.moveTo(node.rectangle.location.subtract(node.rectangle.size.divide(2)));
+    const size = node.rectangle.size;
+    node.moveTo(options?.getTopLeft?.(size) ?? clickWorldLocation.subtract(size.divide(2)));
     this.project.stageManager.add(node);
     this.project.sectionInOutManager.goInSections([node], addToSections);
 
@@ -99,11 +100,7 @@ export class NodeAdder {
    * @param selectCurrent
    * @returns 返回的是创建节点的uuid，如果当前没有选中节点，则返回空字符串
    */
-  async addTextNodeFromCurrentSelectedNode(
-    direction: Direction,
-    addToSections: Section[],
-    selectCurrent = false,
-  ): Promise<string> {
+  async addTextNodeFromCurrentSelectedNode(direction: Direction, selectCurrent = false): Promise<string> {
     // 先检查当前是否有选中的唯一实体
     const selectedEntities = this.project.stageManager
       .getSelectedEntities()
@@ -116,54 +113,24 @@ export class NodeAdder {
      * 当前选择的实体
      */
     const selectedEntity = selectedEntities[0];
-    const entityRectangle = selectedEntity.collisionBox.getRectangle();
-    let createLocation = new Vector(0, 0);
-    const distanceLength = 100;
-    if (direction === Direction.Up) {
-      createLocation = entityRectangle.topCenter.add(new Vector(0, -distanceLength));
-    } else if (direction === Direction.Down) {
-      createLocation = entityRectangle.bottomCenter.add(new Vector(0, distanceLength));
-    } else if (direction === Direction.Left) {
-      createLocation = entityRectangle.leftCenter.add(new Vector(-distanceLength, 0));
-    } else if (direction === Direction.Right) {
-      createLocation = entityRectangle.rightCenter.add(new Vector(distanceLength, 0));
-    }
-    addToSections = selectedEntity.parentSection ? [selectedEntity.parentSection] : [];
-    const uuid = await this.addTextNodeByClick(createLocation, addToSections, selectCurrent, false, {
+    const source = selectedEntity.collisionBox.getRectangle();
+    const sections = selectedEntity.parentSection ? [selectedEntity.parentSection] : [];
+    const gap = 48;
+    return this.addTextNodeByClick(source.center, sections, selectCurrent, true, {
       overrideFontScaleLevel: selectedEntity instanceof TextNode ? selectedEntity.fontScaleLevel : 0,
+      getTopLeft: (size) => {
+        switch (direction) {
+          case Direction.Up:
+            return new Vector(source.left, source.top - gap - size.y);
+          case Direction.Down:
+            return new Vector(source.left, source.bottom + gap);
+          case Direction.Left:
+            return new Vector(source.left - gap - size.x, source.top);
+          case Direction.Right:
+            return new Vector(source.right + gap, source.top);
+        }
+      },
     });
-    const newNode = this.project.stageManager.getTextNodeByUUID(uuid);
-    if (!newNode) {
-      throw new Error("Failed to add node");
-    }
-    // 如果是通过上下创建的节点，则需要左对齐
-    if (direction === Direction.Up || direction === Direction.Down) {
-      const distance = newNode.rectangle.left - entityRectangle.left;
-      newNode.moveTo(newNode.rectangle.location.add(new Vector(-distance, 0)));
-    }
-    if (direction === Direction.Left) {
-      // 顶对齐
-      const distance = newNode.rectangle.top - entityRectangle.top;
-      newNode.moveTo(newNode.rectangle.location.add(new Vector(0, -distance)));
-    }
-    if (direction === Direction.Right) {
-      // 顶对齐，+ 自己对齐到目标的右侧
-      const targetLocation = entityRectangle.rightTop;
-      newNode.moveTo(targetLocation);
-    }
-    if (direction === Direction.Up) {
-      const targetLocation = entityRectangle.leftTop.subtract(
-        new Vector(0, newNode.collisionBox.getRectangle().height),
-      );
-      newNode.moveTo(targetLocation);
-    }
-    if (direction === Direction.Down) {
-      const targetLocation = entityRectangle.leftBottom;
-      newNode.moveTo(targetLocation);
-    }
-    this.project.historyManager.recordStep();
-    // 创建时没有记录，这里调整完位置再记录
-    return uuid;
   }
 
   private async getAutoName(): Promise<string> {

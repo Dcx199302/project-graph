@@ -32,7 +32,10 @@ import { ControllerInput } from "./ControllerInput";
 @service("controller")
 export class Controller {
   setCursorName(name: CursorNameEnum) {
-    this.project.canvas.element.style.cursor = name;
+    this.project.canvas.element.style.cursor =
+      name === CursorNameEnum.Default && Settings.mouseLeftMode === "drag" && !Settings.viewerMode
+        ? CursorNameEnum.Grab
+        : name;
   }
 
   // 检测正在按下的键
@@ -76,7 +79,8 @@ export class Controller {
 
   private readonly input: ControllerInput;
   private readonly controllers: ControllerClass[] = [];
-  private isCameraPointerGesture = false;
+  private pointerController: ControllerClass | null = null;
+  private readonly unwatchMouseLeftMode: () => void;
 
   lastClickTime = 0;
   lastClickLocation = Vector.getZero();
@@ -112,7 +116,7 @@ export class Controller {
     this.camera.cancelGesture();
     this.isMouseDown.fill(false);
     this.isMovingEdge = false;
-    this.isCameraPointerGesture = false;
+    this.pointerController = null;
     for (const controller of this.controllers) controller.mouseMoveOutWindowForcedShutdown(location);
     this.setCursorName(CursorNameEnum.Default);
   }
@@ -143,33 +147,47 @@ export class Controller {
     this.input = new ControllerInput(project.canvas.element, (x, y) => project.canvas.clientToView(x, y), {
       down: (event) => {
         this.mousedown(event);
+        this.pointerController = null;
+        if (this.entityClickSelectAndMove.tryStartDrag(event)) {
+          this.pointerController = this.entityClickSelectAndMove;
+          return;
+        }
         this.camera.mousedown(event);
-        this.isCameraPointerGesture = this.camera.isUsingMouseGrabMove;
-        if (!this.isCameraPointerGesture)
+        if (this.camera.isUsingMouseGrabMove) this.pointerController = this.camera;
+        else
           this.dispatch((c) => {
             if (c !== this.camera) c.mousedown(event);
           });
       },
       move: (event) => {
         this.resetCountdownTimer();
-        if (this.isCameraPointerGesture) this.camera.mousemove(event);
+        if (this.pointerController && this.isMouseDown.some(Boolean)) this.pointerController.mousemove(event);
         else this.dispatch((c) => c.mousemove(event));
       },
       up: (event) => {
         this.mouseup(event);
-        if (this.isCameraPointerGesture) this.camera.mouseup(event);
+        if (this.pointerController) this.pointerController.mouseup(event);
         else this.dispatch((c) => c.mouseup(event));
       },
+      middleClick: (event) => !event.ctrlKey && this.camera.toggleMouseDragMode(),
       doubleClick: (event) => {
-        if (this.isCameraPointerGesture) this.camera.mouseDoubleClick(event);
-        else this.dispatch((c) => c.mouseDoubleClick(event));
+        if (event.button === 1 || this.pointerController === this.camera) this.camera.mouseDoubleClick(event);
+        else if (!this.pointerController) this.dispatch((c) => c.mouseDoubleClick(event));
       },
       wheel: (event) => {
         this.mousewheel(event);
+        if (this.pointerController === this.entityClickSelectAndMove && this.isMouseDown.some(Boolean)) return;
         this.dispatch((c) => c.mousewheel(event));
       },
       keydown: (event) => {
         this.keydown(event);
+        if (
+          event.key === "Enter" &&
+          this.project.keyboardOnlyEngine.isOpenning() &&
+          this.project.keyboardOnlyTreeEngine.canGenerateSiblingNode()
+        ) {
+          return;
+        }
         this.dispatch((c) => c.keydown(event));
       },
       keyup: (event) => {
@@ -189,13 +207,14 @@ export class Controller {
         for (const c of this.controllers) c.touchend(event);
       },
       cancel: (location) => this.cancelInput(location),
-      mouseChord: () => {
-        this.resetCountdownTimer();
-        if (!Settings.viewerMode) Settings.mouseLeftMode = Settings.mouseLeftMode === "draw" ? "selectAndMove" : "draw";
-      },
+    });
+    this.unwatchMouseLeftMode = Settings.watch("mouseLeftMode", () => {
+      if (!this.isMouseDown.some(Boolean) && !this.camera.isPreGrabbingWhenSpace)
+        this.setCursorName(CursorNameEnum.Default);
     });
   }
   dispose() {
+    this.unwatchMouseLeftMode();
     this.input.dispose();
     for (const controller of this.controllers) controller.dispose();
     this.controllers.length = 0;

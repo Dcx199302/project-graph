@@ -9,6 +9,13 @@ import { isMac } from "@/utils/platform";
 import { Vector } from "@graphif/data-structures";
 import { toast } from "sonner";
 
+const directionalCreateKeyIds = [
+  "createTextNodeFromSelectedTop",
+  "createTextNodeFromSelectedRight",
+  "createTextNodeFromSelectedLeft",
+  "createTextNodeFromSelectedDown",
+];
+
 /**
  * 主要用于解决canvas上无法输入的问题，用临时生成的jsdom元素透明地贴在上面
  */
@@ -146,13 +153,12 @@ export class InputElement {
     style: Partial<CSSStyleDeclaration> = {},
     selectAllWhenCreated = true,
     exitOnWheel = false,
-    /**
-     * 固定宽度模式（manual 节点使用）：传入节点视图宽度（px 数值），
-     * textarea 宽度将锁定为该值，不随内容扩展；高度仍自动增长。
-     * 不传（undefined）则为自动宽度模式（auto 节点使用）。
-     */
-    fixedWidth?: number,
+    options: {
+      fixedWidth?: number;
+      edgeLabel?: (element: HTMLTextAreaElement, resize: () => void) => void;
+    } = {},
   ): Promise<string> {
+    const { fixedWidth, edgeLabel } = options;
     return new Promise((resolve) => {
       const textareaElement = document.createElement("textarea");
       textareaElement.value = defaultValue;
@@ -207,13 +213,17 @@ export class InputElement {
       // fixedWidth 有值 → manual 模式：宽度固定，只调整高度
       // fixedWidth 无值 → auto 模式：用镜像 div 测量真实内容宽度并扩展
       const adjustSize = (composingText?: string) => {
+        const fullText = textareaElement.value + (composingText ?? "");
         if (fixedWidth === undefined) {
+          if (edgeLabel) mirrorDiv.style.fontSize = textareaElement.style.fontSize;
           // auto 模式：宽度随内容扩展，用镜像 div 测量（包含 composing 中的拼音字母）
-          const fullText = composingText !== undefined ? textareaElement.value + composingText : textareaElement.value;
           const measuredWidth = measureTextWidth(fullText);
           textareaElement.style.width = `${measuredWidth + 2}px`;
         }
-        if (style.height === undefined) {
+        if (edgeLabel) {
+          // textarea 的默认高度是两行，单行标签应紧贴原位置。
+          textareaElement.rows = fullText.split("\n").length;
+        } else if (style.height === undefined) {
           textareaElement.style.height = "auto";
           textareaElement.style.height = `${textareaElement.scrollHeight}px`;
         }
@@ -221,6 +231,7 @@ export class InputElement {
 
       // 初始化时立即调整一次，防止初始渲染就换行
       adjustSize();
+      edgeLabel?.(textareaElement, adjustSize);
 
       const onOutsideWheel = () => {
         finish();
@@ -292,14 +303,6 @@ export class InputElement {
         adjustSize(event.data);
       });
 
-      // 在输入之前判断是否进行了撤销操作，此监听器在keydown之后触发
-      let hasTextareaUndone = false;
-      textareaElement.addEventListener("beforeinput", (event: InputEvent) => {
-        if (event.inputType === "historyUndo") {
-          hasTextareaUndone = true;
-        }
-      });
-
       let isComposing = false;
       textareaElement.addEventListener("compositionstart", () => {
         isComposing = true;
@@ -316,6 +319,20 @@ export class InputElement {
 
       textareaElement.addEventListener("keydown", (event) => {
         event.stopPropagation();
+        if (!edgeLabel && !event.isComposing && !isComposing && (event.altKey || event.ctrlKey || event.metaKey)) {
+          for (const id of directionalCreateKeyIds) {
+            const binding = KeyBindsUI.getUIKeyBind(id);
+            const key = binding?.key.trim();
+            if (!binding?.isEnabled || !key || /\s/.test(key) || !matchSingleEmacsKey(key, event)) continue;
+            if (binding.when(this.project) !== true) continue;
+            event.preventDefault();
+            if (!event.repeat) {
+              finish();
+              binding.onPress(this.project);
+            }
+            return;
+          }
+        }
         if (isMac) {
           // 补充mac平台快捷键，home/end移动到行首/行尾
           // shift+home/end 选中当前光标位置到行首/行尾
@@ -329,12 +346,13 @@ export class InputElement {
         }
 
         // 动态检测广度生长快捷键（generateNodeTreeWithBroadMode）
-        const broadKeyBind = KeyBindsUI.getUIKeyBind("generateNodeTreeWithBroadMode");
-        const isBroadKeySingleKey = broadKeyBind && !broadKeyBind.key.trim().includes(" ");
+        const broadKeyBind = edgeLabel ? undefined : KeyBindsUI.getUIKeyBind("generateNodeTreeWithBroadMode");
+        const isBroadKeySingleKey =
+          event.key !== "Enter" && broadKeyBind?.isEnabled && !broadKeyBind.key.trim().includes(" ");
         const isBroadKeyMatch = isBroadKeySingleKey && matchSingleEmacsKey(broadKeyBind!.key.trim(), event);
 
         // 动态检测深度生长快捷键（generateNodeTreeWithDeepMode）
-        const deepKeyBind = KeyBindsUI.getUIKeyBind("generateNodeTreeWithDeepMode");
+        const deepKeyBind = edgeLabel ? undefined : KeyBindsUI.getUIKeyBind("generateNodeTreeWithDeepMode");
         const isDeepKeySingleKey = deepKeyBind && !deepKeyBind.key.trim().includes(" ");
         const isDeepKeyMatch = isDeepKeySingleKey && matchSingleEmacsKey(deepKeyBind!.key.trim(), event);
 
@@ -354,7 +372,7 @@ export class InputElement {
               this.project.keyboardOnlyTreeEngine.onBroadGenerateNode();
             }
           }
-        } else if (event.code === "Backspace") {
+        } else if (!edgeLabel && event.code === "Backspace") {
           // event.preventDefault();  // 不能这样否则就删除不了了。
           if (textareaElement.value === "") {
             if (Settings.textNodeBackspaceDeleteWhenEmpty) {
@@ -399,14 +417,6 @@ export class InputElement {
           event.preventDefault(); // 这里可以阻止mac退出全屏
           // Escape 是通用的取消编辑的快捷键
           finish();
-        } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-          // 如果按下了撤销键但没撤销，则textarea撤销栈已空，认为用户的想法是退出编辑
-          setTimeout(() => {
-            if (!hasTextareaUndone) {
-              finish();
-            }
-          }, 10); // 延迟10ms再检测撤销操作是否完成
-          hasTextareaUndone = false; // 重置标志
         }
 
         const breakLine = () => {
@@ -433,7 +443,7 @@ export class InputElement {
             if (Settings.textNodeExitEditMode === enterKeyDetail) {
               // 用户想退出编辑
               exitEditMode();
-              this.addSuccessEffect();
+              if (!edgeLabel) this.addSuccessEffect();
             } else if (Settings.textNodeContentLineBreak === enterKeyDetail) {
               // 用户想换行
               breakLine();

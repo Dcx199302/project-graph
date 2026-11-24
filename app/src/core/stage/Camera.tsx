@@ -2,11 +2,12 @@ import { Project, service } from "@/core/Project";
 import { easeOutExpo } from "@/core/service/feedbackService/effectEngine/mathTools/easings";
 import { Settings } from "@/core/service/Settings";
 import { SoundService } from "../service/feedbackService/SoundService";
-import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { Direction } from "@/types/directions";
 import { Queue, Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { toast } from "sonner";
+
+type CameraView = { location: Vector; scale: number };
 
 /**
  * 摄像机
@@ -65,10 +66,7 @@ export class Camera {
    */
   readonly shakeLocation: Vector = Vector.getZero();
 
-  /**
-   * 记录的摄像机位置和缩放大小
-   */
-  private savedCameraState: { location: Vector; scale: number } | null = null;
+  private fitViewState: { previous: CameraView; fitted: CameraView } | null = null;
 
   // pageup / pagedown 爆炸式移动
 
@@ -316,46 +314,87 @@ export class Camera {
       return;
     }
     this.hasResetOnOpen = true;
-    // --
-    this.location = this.project.stageManager.getCenter();
-    this.targetLocationByScale = this.location.clone();
-    // this.currentScale = 0.01;
-    const allEntitiesSize = this.project.stageManager.getSize();
-    allEntitiesSize.multiply(Settings.cameraResetViewPaddingRate);
-    // 添加缩放上限，与resetByRectangle方法保持一致
-    this.currentScale = Math.min(
-      Settings.cameraResetViewPaddingRate,
-      Math.min(this.project.renderer.h / allEntitiesSize.y, this.project.renderer.w / allEntitiesSize.x),
-    );
-    this.targetScale = this.currentScale;
+    this.setView(this.getFullView());
     this.stopImmediately();
     SoundService.play.viewAdjustSoundFile();
   }
 
   resetBySelected() {
-    const selectedEntity: Entity[] = this.project.stageManager.getSelectedEntities();
-    if (selectedEntity.length === 0) {
+    const bounds = this.getSelectedBounds();
+    if (!bounds) {
       this.reset();
       return;
     }
-    const viewRectangle = Rectangle.getBoundingRectangle(selectedEntity.map((e) => e.collisionBox.getRectangle()));
-    this.resetByRectangle(viewRectangle);
+    this.resetByRectangle(bounds);
     SoundService.play.viewAdjustSoundFile();
   }
 
   resetByRectangle(viewRectangle: Rectangle) {
-    const center = viewRectangle.center;
-    this.location = center;
-    this.targetLocationByScale = center.clone();
+    this.setView(this.getRectangleView(viewRectangle));
+  }
 
-    const selectedRectangleSize = viewRectangle.size.multiply(Settings.cameraResetViewPaddingRate);
+  private getSelectedBounds(): Rectangle | undefined {
+    const selected = this.project.stageManager.getSelectedEntities();
+    if (selected.length) return Rectangle.getBoundingRectangle(selected.map((e) => e.collisionBox.getRectangle()));
+  }
 
-    // 再取max是为了防止缩放过大
-    this.currentScale = Math.min(
-      Settings.cameraResetMaxScale,
-      Math.min(this.project.renderer.h / selectedRectangleSize.y, this.project.renderer.w / selectedRectangleSize.x),
-    );
-    this.targetScale = this.currentScale;
+  private getFullView(margin = Vector.getZero()): CameraView {
+    const { w, h } = this.project.renderer;
+    const size = this.project.stageManager.getSize();
+    return {
+      location: this.project.stageManager.getCenter(),
+      scale: Math.min(
+        Settings.cameraResetViewPaddingRate,
+        Math.max(1, w - 2 * margin.x) / size.x,
+        Math.max(1, h - 2 * margin.y) / size.y,
+      ),
+    };
+  }
+
+  private getRectangleView(rectangle: Rectangle): CameraView {
+    const { w, h } = this.project.renderer;
+    const size = rectangle.size.multiply(Settings.cameraResetViewPaddingRate);
+    return { location: rectangle.center, scale: Math.min(Settings.cameraResetMaxScale, w / size.x, h / size.y) };
+  }
+
+  private setView(view: CameraView) {
+    this.location = view.location.clone();
+    this.targetLocationByScale = view.location.clone();
+    this.currentScale = this.targetScale = view.scale;
+  }
+
+  toggleFitView() {
+    const { w, h } = this.project.renderer;
+    if (w <= 0 || h <= 0) return;
+
+    const selected = this.getSelectedBounds();
+    const clientScale = this.project.canvas.viewToClientScale();
+    const margin = new Vector(15 / Camera.validScale(clientScale.x, 1), 15 / Camera.validScale(clientScale.y, 1));
+    const fitted = selected ? this.getRectangleView(selected) : this.getFullView(margin);
+    const lastFit = this.fitViewState?.fitted;
+    if (
+      lastFit &&
+      lastFit.scale === fitted.scale &&
+      lastFit.location.equals(fitted.location) &&
+      this.currentScale === lastFit.scale &&
+      this.targetScale === lastFit.scale &&
+      this.location.equals(lastFit.location)
+    ) {
+      this.restoreCameraState();
+    } else {
+      this.fitViewState = { previous: { location: this.location.clone(), scale: this.currentScale }, fitted };
+      this.hasResetOnOpen = true;
+      this.setView(fitted);
+      this.stopImmediately();
+    }
+    SoundService.play.viewAdjustSoundFile();
+  }
+
+  restoreCameraState() {
+    if (!this.fitViewState) return;
+    this.setView(this.fitViewState.previous);
+    this.fitViewState = null;
+    this.stopImmediately();
   }
 
   resetScale() {
@@ -365,35 +404,6 @@ export class Camera {
 
   resetLocationToZero() {
     this.bombMove(Vector.getZero());
-  }
-
-  /**
-   * 保存当前摄像机状态
-   * 只有在当前没有保存状态的情况下才保存
-   */
-  saveCameraState() {
-    // 只有在当前没有保存状态的情况下才保存
-    if (!this.savedCameraState) {
-      this.savedCameraState = {
-        location: this.location.clone(),
-        scale: this.currentScale,
-      };
-    }
-  }
-
-  /**
-   * 恢复之前保存的摄像机状态
-   * 恢复后清除保存的状态，以便下次使用
-   */
-  restoreCameraState() {
-    if (this.savedCameraState) {
-      this.location = this.savedCameraState.location.clone();
-      this.targetLocationByScale = this.savedCameraState.location.clone();
-      this.currentScale = this.savedCameraState.scale;
-      this.targetScale = this.savedCameraState.scale;
-      // 恢复后清除保存的状态，以便下次使用
-      this.savedCameraState = null;
-    }
   }
 
   isDefaultZoom(): boolean {

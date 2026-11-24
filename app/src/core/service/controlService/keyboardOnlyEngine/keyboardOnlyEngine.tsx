@@ -1,19 +1,22 @@
 import { Project, service } from "@/core/Project";
-import { EntityShakeEffect } from "@/core/service/feedbackService/effectEngine/concrete/EntityShakeEffect";
 import { RectangleLittleNoteEffect } from "@/core/service/feedbackService/effectEngine/concrete/RectangleLittleNoteEffect";
 import { Settings } from "@/core/service/Settings";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { getEnterKey } from "@/utils/keyboardFunctions";
-import { toast } from "sonner";
 
 /**
  * 纯键盘控制的相关引擎
  */
 @service("keyboardOnlyEngine")
 export class KeyboardOnlyEngine {
+  private spaceEditPending = false;
+
   constructor(private readonly project: Project) {
     this.project.canvas.element.addEventListener("keydown", this.onKeyDown);
     this.project.canvas.element.addEventListener("keyup", this.onKeyUp);
+    this.project.canvas.element.addEventListener("pointerdown", this.cancelSpaceEdit);
+    this.project.canvas.element.addEventListener("blur", this.cancelSpaceEdit);
+    window.addEventListener("blur", this.cancelSpaceEdit);
   }
 
   /**
@@ -31,6 +34,9 @@ export class KeyboardOnlyEngine {
     // 销毁服务
     this.project.canvas.element.removeEventListener("keydown", this.onKeyDown);
     this.project.canvas.element.removeEventListener("keyup", this.onKeyUp);
+    this.project.canvas.element.removeEventListener("pointerdown", this.cancelSpaceEdit);
+    this.project.canvas.element.removeEventListener("blur", this.cancelSpaceEdit);
+    window.removeEventListener("blur", this.cancelSpaceEdit);
   }
 
   private startEditNode = (event: KeyboardEvent, selectedNode: TextNode) => {
@@ -42,41 +48,36 @@ export class KeyboardOnlyEngine {
     }, 1); // 上面的prevent似乎不生效了，但这里加个1毫秒就能解决了
   };
 
+  private cancelSpaceEdit = () => {
+    this.spaceEditPending = false;
+  };
+
   private onKeyUp = (event: KeyboardEvent) => {
-    // 把空格键进入节点编辑状态的时机绑定到keyup上，这样就巧妙的解决了退出编辑状态后左键框选和点击失灵的问题。
-    if (event.key === " ") {
-      if (Settings.textNodeStartEditMode === "space") {
-        // 用户设置了空格键进入节点编辑状态（3群用户：神奈川）
-        const selectedNode = this.project.stageManager.getTextNodes().find((node) => node.isSelected);
-        if (!selectedNode) return;
-        if (this.project.controller.isMouseDown[0]) {
-          // 不要在可能拖动节点的情况下按空格
-          toast.warning("请不要在拖动节点的过程中按空格");
-          return;
-        }
-        this.startEditNode(event, selectedNode);
-      }
-    }
+    if (event.key !== " " || !this.spaceEditPending) return;
+    this.cancelSpaceEdit();
+    if (!this.openning || Settings.viewerMode) return;
+    const selectedNode = this.project.stageManager.getTextNodes().find((node) => node.isSelected);
+    if (selectedNode) this.startEditNode(event, selectedNode);
   };
 
   private onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Enter") {
-      const enterKeyDetail = getEnterKey(event);
-      if (Settings.textNodeStartEditMode === enterKeyDetail) {
-        // 这个还必须在down的位置上，因为在up上会导致无限触发
-        const selectedNode = this.project.stageManager.getTextNodes().find((node) => node.isSelected);
-        if (!selectedNode) return;
-        this.startEditNode(event, selectedNode);
-      } else {
-        // 用户可能记错了快捷键
-        this.addFailEffect();
-      }
+    if (event.isComposing) return;
+    if (event.key === " " && Settings.textNodeStartEditMode === "space") {
+      if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      event.preventDefault();
+      if (!event.repeat) this.spaceEditPending = !this.project.controller.isMouseDown.some(Boolean);
+    } else if (
+      event.key === "Enter" &&
+      !event.repeat &&
+      this.openning &&
+      !Settings.viewerMode &&
+      Settings.textNodeStartEditMode === getEnterKey(event)
+    ) {
+      const selectedNode = this.project.stageManager.getTextNodes().find((node) => node.isSelected);
+      if (selectedNode) this.startEditNode(event, selectedNode);
     } else if (event.key === "Escape") {
       this.project.keyboardOnlyGraphEngine.createCancel();
-      // 取消全部选择
-      for (const stageObject of this.project.stageManager.getStageObjects()) {
-        stageObject.isSelected = false;
-      }
+      this.project.stageManager.clearSelectAll();
     } else if (event.key === "F2") {
       const selectedNode = this.project.stageManager.getTextNodes().find((node) => node.isSelected);
       if (!selectedNode) return;
@@ -97,13 +98,5 @@ export class KeyboardOnlyEngine {
         ),
       );
     }
-  }
-
-  private addFailEffect() {
-    const textNodes = this.project.stageManager.getTextNodes().filter((textNode) => textNode.isSelected);
-    for (const textNode of textNodes) {
-      this.project.effects.addEffect(EntityShakeEffect.fromEntity(textNode));
-    }
-    // 这里就不显示提示文字了。因为用户“快深频”说总是误弹出。
   }
 }

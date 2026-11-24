@@ -1,7 +1,7 @@
 import { Project } from "@/core/Project";
 import { Renderer } from "@/core/render/canvas2d/renderer";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
-import { Edge } from "@/core/stage/stageObject/association/Edge";
+import { Edge, type PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { EdgeCollisionBoxGetter } from "@/core/stage/stageObject/association/EdgeCollisionBoxGetter";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
@@ -54,6 +54,8 @@ export class LineEdge extends Edge {
       targetRectangleRate = Vector.same(0.5),
       lineType = "solid",
       arrowType = "default",
+      graphLayout = undefined as PreservedGraphLayout | undefined,
+      fishboneLayout = undefined as boolean | undefined,
     },
     /** true表示解析状态，false表示解析完毕 */
     public unknown = false,
@@ -67,6 +69,7 @@ export class LineEdge extends Edge {
     this.targetRectangleRate = targetRectangleRate;
     this.lineType = lineType;
     this.arrowType = arrowType;
+    this.graphLayout = graphLayout ?? (fishboneLayout === true ? "fishbone" : undefined);
 
     this.adjustSizeByText();
   }

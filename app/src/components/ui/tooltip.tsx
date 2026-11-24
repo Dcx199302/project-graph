@@ -24,13 +24,19 @@ function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimiti
 function TooltipContent({
   className,
   sideOffset = 24,
+  followCursor = true,
+  portalContainer,
   children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: React.ComponentProps<typeof TooltipPrimitive.Content> & {
+  followCursor?: boolean;
+  portalContainer?: React.ComponentProps<typeof TooltipPrimitive.Portal>["container"];
+}) {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const [offset, setOffset] = React.useState({ left: 0, top: 0 });
 
   React.useEffect(() => {
+    if (!followCursor) return;
     const handleMouseMove = (event: MouseEvent) => {
       const x = event.clientX;
       const y = event.clientY;
@@ -60,22 +66,24 @@ function TooltipContent({
     };
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, [sideOffset]);
+  }, [followCursor, sideOffset]);
 
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={portalContainer}>
       <TooltipPrimitive.Content
         ref={contentRef}
+        sideOffset={followCursor ? undefined : sideOffset}
         data-slot="tooltip-content"
+        data-follow-cursor={followCursor || undefined}
         hideWhenDetached
         className={cn(
-          "bg-primary/75 border-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 pointer-events-none fixed z-50 w-max rounded-md border px-3 py-1.5 text-xs text-balance",
+          "bg-primary/75 border-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 pointer-events-none z-50 w-max rounded-md border px-3 py-1.5 text-xs text-balance",
+          followCursor && "fixed",
           className,
         )}
         style={{
           ...props.style,
-          left: offset.left,
-          top: offset.top,
+          ...(followCursor && { left: offset.left, top: offset.top }),
         }}
         {...props}
       >

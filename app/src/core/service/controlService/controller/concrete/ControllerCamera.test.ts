@@ -23,6 +23,7 @@ vi.stubGlobal("WheelEvent", { DOM_DELTA_PIXEL: 0 });
 import { ControllerCameraClass } from "./ControllerCamera";
 import type { Project } from "@/core/Project";
 import { Camera } from "@/core/stage/Camera";
+import { Settings } from "@/core/service/Settings";
 
 function setup() {
   const project = {
@@ -58,6 +59,23 @@ const wheel = (values: Partial<WheelEvent>) =>
     ctrlKey: false,
     ...values,
   }) as WheelEvent;
+
+it("toggles between hand and selection modes on consecutive clicks", () => {
+  const { control, project } = setup();
+  const originalMode = Settings.mouseLeftMode;
+  Settings.mouseLeftMode = "selectAndMove";
+  try {
+    expect(control.toggleMouseDragMode()).toBe(true);
+    expect(Settings.mouseLeftMode).toBe("drag");
+    expect(control.toggleMouseDragMode()).toBe(true);
+    expect(Settings.mouseLeftMode).toBe("selectAndMove");
+    project.controller.isCameraLocked = true;
+    expect(control.toggleMouseDragMode()).toBe(false);
+    expect(Settings.mouseLeftMode).toBe("selectAndMove");
+  } finally {
+    Settings.mouseLeftMode = originalMode;
+  }
+});
 
 describe("trackpad camera handoff", () => {
   it.each([1e-6, 1e6])("supports gesture zoom beyond the old limits at %s", (scale) => {
@@ -105,6 +123,25 @@ describe("trackpad camera handoff", () => {
     expect(camera.location.x).toBe(location);
     control.mouseup({ button: 1 } as MouseEvent);
     expect(control.isUsingMouseGrabMove).toBe(false);
+  });
+  it.each([0, 1])("pans a blank canvas for button %i in the hand tool and stops on release", (button) => {
+    const { camera, control, project } = setup();
+    const originalMode = Settings.mouseLeftMode;
+    const originalRight = Settings.mouseRightDragBackground;
+    Settings.mouseLeftMode = "drag";
+    Settings.mouseRightDragBackground = "moveCamera";
+    try {
+      project.controller.isMouseDown[button] = true;
+      control.mousedown({ button, clientX: 50, clientY: 50 } as MouseEvent);
+      control.mousemove({ clientX: 65, clientY: 50 } as MouseEvent);
+      expect(camera.location.x).toBe(-15);
+      control.mouseup({ button } as MouseEvent);
+      control.mousemove({ clientX: 80, clientY: 50 } as MouseEvent);
+      expect(camera.location.x).toBe(-15);
+    } finally {
+      Settings.mouseLeftMode = originalMode;
+      Settings.mouseRightDragBackground = originalRight;
+    }
   });
   it("combines pinch and pan and stays completely still for 240 ticks after release", () => {
     const { camera, control, project } = setup();

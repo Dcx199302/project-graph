@@ -20,6 +20,7 @@ describe("zoomed-out enclosure strokes", () => {
       camera: { currentScale: scale },
       canvas: { ctx: { setLineDash: vi.fn() } },
       renderer: { transformWorld2View: (point: Vector) => point.multiply(scale) },
+      edgeRenderer: { renderLabel: vi.fn() },
       shapeRenderer: { renderCircle: circle },
       curveRenderer: { renderSolidLineMultiple: line, renderDoubleLine: double },
     } as unknown as Project);

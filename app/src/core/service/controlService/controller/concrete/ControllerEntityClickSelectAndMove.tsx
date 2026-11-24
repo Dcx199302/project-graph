@@ -6,6 +6,7 @@ import { RectangleRenderEffect } from "@/core/service/feedbackService/effectEngi
 import { Settings } from "@/core/service/Settings";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { Section } from "@/core/stage/stageObject/entity/Section";
+import { CursorNameEnum } from "@/types/cursors";
 import { isMac } from "@/utils/platform";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
@@ -19,18 +20,45 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
     return true;
   }
 
-  private isMovingEntity = false;
+  private dragButton: number | null = null;
+  private dragTarget: Entity | null = null;
+  private hasMovedEntity = false;
   private mouseDownViewLocation = Vector.getZero();
+  private lastDragViewLocation = Vector.getZero();
   private shakeDetector = new ShakeDetector();
   /** 按住 Shift 拖拽时锁定的移动轴，null 表示尚未确定 */
   private shiftAxisLock: "x" | "y" | null = null;
   /** 按住 Shift 拖拽时，相对于按下时世界坐标的累计位移，用于确定锁定轴 */
   private shiftAccumulatedDelta = Vector.getZero();
 
-  public mousedown: (event: MouseEvent) => void = (event: MouseEvent) => {
-    if (Settings.viewerMode) {
-      this.isMovingEntity = false;
-    }
+  public tryStartDrag(event: MouseEvent): boolean {
+    const middle = event.button === 1 && !event.ctrlKey;
+    const hand = event.button === 0 && Settings.mouseLeftMode === "drag";
+    if ((!middle && !hand) || Settings.viewerMode || this.project.controller.isCameraLocked) return false;
+    if (hand && Settings.enableSpaceKeyMouseLeftDrag && this.project.controller.pressingKeySet.has(" ")) return false;
+
+    const point = new Vector(event.clientX, event.clientY);
+    const worldPoint = this.project.renderer.transformView2World(point);
+    const clicked = this.project.controllerUtils.getClickedStageObject(worldPoint);
+    if (!(clicked instanceof Entity)) return false;
+    const target = this.project.sectionMethods.getOutermostLockedAncestorSection(clicked) ?? clicked;
+    this.beginDrag(event, target);
+    this.project.camera.stopImmediately();
+    return true;
+  }
+
+  private beginDrag(event: MouseEvent, target: Entity | null = null) {
+    this.dragButton = event.button;
+    this.dragTarget = target;
+    this.hasMovedEntity = false;
+    this.mouseDownViewLocation = new Vector(event.clientX, event.clientY);
+    this.lastDragViewLocation = this.mouseDownViewLocation;
+    this.shakeDetector.reset();
+    this.shiftAxisLock = null;
+    this.shiftAccumulatedDelta = Vector.getZero();
+  }
+
+  public mousedown = (event: PointerEvent) => {
     if (event.button !== 0) {
       return;
     }
@@ -40,10 +68,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
     if (this.project.controller.camera.isPreGrabbingWhenSpace) {
       return;
     }
-    this.mouseDownViewLocation = new Vector(event.clientX, event.clientY);
-
-    const pressWorldLocation = this.project.renderer.transformView2World(this.mouseDownViewLocation);
-    this.lastMoveLocation = pressWorldLocation.clone();
+    const pressWorldLocation = this.project.renderer.transformView2World(new Vector(event.clientX, event.clientY));
 
     // 检查是否点击了缩放控制点，如果是，就不要触发移动事件
     if (this.project.controllerUtils.isClickedResizeRect(pressWorldLocation)) {
@@ -51,6 +76,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
     }
 
     const clickedStageObject = this.project.controllerUtils.getClickedStageObject(pressWorldLocation);
+    const directDrag = (event.pointerType === "touch" || event.pointerType === "pen") && !Settings.viewerMode;
 
     // 检查点击的物体是否在锁定的 section 内
     if (clickedStageObject && clickedStageObject instanceof Entity) {
@@ -62,7 +88,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
             obj.isSelected = false;
           });
           outermostLockedAncestor.isSelected = true;
-          this.isMovingEntity = !Settings.viewerMode;
+          if (directDrag) this.beginDrag(event);
           return;
         }
       } else {
@@ -75,7 +101,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
               obj.isSelected = false;
             });
             outermostLockedSection.isSelected = true;
-            this.isMovingEntity = !Settings.viewerMode;
+            if (directDrag) this.beginDrag(event);
           }
           return;
         }
@@ -89,10 +115,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
 
     // 单击选中
     if (clickedStageObject !== null) {
-      this.isMovingEntity = !Settings.viewerMode;
-      this.shakeDetector.reset(); // 开始拖拽时重置摇晃检测器
-      this.shiftAxisLock = null;
-      this.shiftAccumulatedDelta = Vector.getZero();
+      if (directDrag && clickedStageObject instanceof Entity) this.beginDrag(event);
 
       if (
         this.project.controller.pressingKeySet.has("shift") &&
@@ -146,25 +169,29 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
   };
 
   public mousemove: (event: MouseEvent) => void = (event: MouseEvent) => {
+    if (this.dragButton === null) return;
     if (Settings.viewerMode) {
-      this.isMovingEntity = false;
+      this.finishDrag(false);
       return;
     }
     if (
       this.project.controller.rectangleSelect.isUsing ||
       this.project.controller.cutting.isUsing ||
-      this.project.controller.pressingKeySet.has("alt")
+      (!this.dragTarget && this.project.controller.pressingKeySet.has("alt"))
     ) {
       return;
     }
-    if (Settings.mouseLeftMode !== "selectAndMove") {
-      return;
+    const viewLocation = new Vector(event.clientX, event.clientY);
+    if (this.dragTarget && !this.hasMovedEntity) {
+      if (viewLocation.distance(this.mouseDownViewLocation) <= 5) return;
+      if (!this.dragTarget.isSelected) {
+        this.project.stageManager.clearSelectAll();
+        this.dragTarget.isSelected = true;
+      }
     }
-    if (!this.isMovingEntity) {
-      return;
-    }
-    const worldLocation = this.project.renderer.transformView2World(new Vector(event.clientX, event.clientY));
-    let diffLocation = worldLocation.subtract(this.lastMoveLocation);
+    const worldLocation = this.project.renderer.transformView2World(viewLocation);
+    let diffLocation = worldLocation.subtract(this.project.renderer.transformView2World(this.lastDragViewLocation));
+    this.lastDragViewLocation = viewLocation;
 
     {
       // 按住 Shift 键：锁定水平或垂直方向移动
@@ -193,9 +220,10 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
       }
     }
 
-    if (this.project.stageManager.isHaveEntitySelected()) {
+    if (!diffLocation.equals(Vector.getZero()) && this.project.stageManager.isHaveEntitySelected()) {
       // 移动节点
-      this.isMovingEntity = true;
+      if (this.dragTarget && !this.hasMovedEntity) this.project.controller.setCursorName(CursorNameEnum.Grabbing);
+      this.hasMovedEntity = true;
       // 暂不监听alt键。因为windows下切换窗口时，alt键释放监听不到
       const isControlPressed = isMac
         ? this.project.controller.pressingKeySet.has("meta")
@@ -236,51 +264,39 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
           }
         }
       }
-
-      this.lastMoveLocation = worldLocation.clone();
     }
   };
 
   public mouseup: (event: MouseEvent) => void = (event: MouseEvent) => {
-    if (Settings.viewerMode) {
-      this.isMovingEntity = false;
-      this.shakeDetector.reset();
-      this.shiftAxisLock = null;
-      this.shiftAccumulatedDelta = Vector.getZero();
-      return;
-    }
-    if (event.button !== 0) {
-      return;
-    }
-    if (Settings.mouseLeftMode !== "selectAndMove") {
-      return;
-    }
+    if (event.button !== this.dragButton) return;
+    if (this.dragTarget && !Settings.viewerMode) this.mousemove(event);
+    this.finishDrag(!Settings.viewerMode);
+  };
 
-    const mouseUpViewLocation = new Vector(event.clientX, event.clientY);
-    const diffLocation = mouseUpViewLocation.subtract(this.mouseDownViewLocation);
-    if (diffLocation.magnitude() > 5) {
-      // 判定为有效吸附的拖拽操作
-      if (this.isMovingEntity) {
-        // 这个时候可以触发对齐吸附事件
-        if (Settings.enableDragAutoAlign) {
-          this.project.autoAlign.alignAllSelected();
-        }
-        if (Settings.enableDragAlignToGrid) {
-          this.project.autoAlign.alignAllSelectedToGrid();
-        }
-
-        this.project.historyManager.recordStep(); // 记录一次历史
-      }
-    }
-
-    this.isMovingEntity = false;
+  private finishDrag(snap: boolean) {
+    if (this.dragButton === null) return;
+    const moved = this.hasMovedEntity;
+    const showCursor = this.dragTarget !== null && moved;
+    this.dragButton = null;
+    this.dragTarget = null;
+    this.hasMovedEntity = false;
     this.shakeDetector.reset();
     this.shiftAxisLock = null;
     this.shiftAccumulatedDelta = Vector.getZero();
-  };
+
+    if (showCursor) {
+      this.project.controller.setCursorName(
+        this.project.controller.camera.isPreGrabbingWhenSpace ? CursorNameEnum.Grab : CursorNameEnum.Default,
+      );
+    }
+    if (!moved) return;
+    if (snap && Settings.enableDragAutoAlign) this.project.autoAlign.alignAllSelected();
+    if (snap && Settings.enableDragAlignToGrid) this.project.autoAlign.alignAllSelectedToGrid();
+    this.project.historyManager.recordStep();
+  }
 
   public mouseMoveOutWindowForcedShutdown(_outsideLocation: Vector): void {
     super.mouseMoveOutWindowForcedShutdown(_outsideLocation);
-    this.isMovingEntity = false;
+    this.finishDrag(false);
   }
 }

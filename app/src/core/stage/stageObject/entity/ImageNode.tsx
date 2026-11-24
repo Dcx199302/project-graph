@@ -51,21 +51,6 @@ export class ImageNode extends ConnectableEntity implements ResizeAble {
    */
   @serializable
   isBackground: boolean = false;
-  /**
-   * 节点是否被选中
-   */
-  _isSelected: boolean = false;
-
-  /**
-   * 获取节点的选中状态
-   */
-  public get isSelected() {
-    return this._isSelected;
-  }
-
-  public set isSelected(value: boolean) {
-    this._isSelected = value;
-  }
 
   bitmap: ImageBitmap | undefined;
   private disposed = false;

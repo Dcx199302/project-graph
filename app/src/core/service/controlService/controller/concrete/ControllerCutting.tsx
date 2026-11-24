@@ -113,8 +113,7 @@ export class ControllerCuttingClass extends ControllerClass {
       this.mouseDownEvent(event);
       return;
     }
-    // 中键按下的
-    if (event.button === 1 && Settings.mouseRightDragBackground === "moveCamera") {
+    if (event.button === 1 && event.ctrlKey && Settings.mouseRightDragBackground === "moveCamera") {
       this.mouseDownEvent(event);
       return;
     }

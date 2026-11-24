@@ -58,17 +58,6 @@ export class LatexNode extends ConnectableEntity {
   currentRenderedColorCss: string = "";
   private renderVersion = 0;
 
-  /** 节点是否被选中 */
-  _isSelected: boolean = false;
-
-  get isSelected() {
-    return this._isSelected;
-  }
-
-  set isSelected(value: boolean) {
-    this._isSelected = value;
-  }
-
   get rectangle(): Rectangle {
     return this.collisionBox.shapes[0] as Rectangle;
   }

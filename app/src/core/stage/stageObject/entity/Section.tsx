@@ -14,10 +14,6 @@ import { Value } from "platejs";
 @passExtraAtArg1
 @passObject
 export class Section extends ConnectableEntity {
-  /**
-   * 节点是否被选中
-   */
-  _isSelected: boolean = false;
   @id
   @serializable
   public uuid: string;
@@ -219,16 +215,6 @@ export class Section extends ConnectableEntity {
         }
       });
     }
-  }
-
-  /**
-   * 获取节点的选中状态
-   */
-  public get isSelected() {
-    return this._isSelected;
-  }
-  public set isSelected(value: boolean) {
-    this._isSelected = value;
   }
 
   /**

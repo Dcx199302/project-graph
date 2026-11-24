@@ -1,5 +1,4 @@
 import { Color, Vector } from "@graphif/data-structures";
-import { Rectangle } from "@graphif/shapes";
 
 import { ArcEdge } from "@/core/stage/stageObject/association/ArcEdge";
 import { Project } from "@/core/Project";
@@ -34,18 +33,13 @@ export function renderArcEdge(
     ctx.stroke();
 
     // 文字（直线中点位置）
-    if (edge.text.trim() !== "") {
-      const mid = { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 };
-      const textRect = new Rectangle(new Vector(mid.x - 50, mid.y - 10), new Vector(100, 20));
-      project.textRenderer.renderMultiLineTextFromCenterWithStroke(
-        edge.text,
-        project.renderer.transformWorld2View(textRect.center),
-        edge.textFontSize * project.camera.currentScale,
-        edgeColor,
-        project.stageStyleManager.currentStyle.Background,
-        Infinity,
-      );
-    }
+    project.edgeRenderer.renderLabel(
+      edge,
+      Vector.average(startPoint, endPoint),
+      edge.textFontSize,
+      edgeColor,
+      "outlined",
+    );
 
     // 箭头
     renderArrowHead(
@@ -150,17 +144,7 @@ export function renderArcEdge(
   }
 
   // 画文字（已有描边，无需背景矩形）
-  if (edge.text.trim() !== "") {
-    const textRect = edge.textRectangle;
-    project.textRenderer.renderMultiLineTextFromCenterWithStroke(
-      edge.text,
-      project.renderer.transformWorld2View(textRect.center),
-      edge.textFontSize * project.camera.currentScale,
-      edgeColor,
-      project.stageStyleManager.currentStyle.Background,
-      Infinity,
-    );
-  }
+  project.edgeRenderer.renderLabel(edge, edge.getArcMidPoint(), edge.textFontSize, edgeColor, "outlined");
 
   // 画箭头（在 clippedEnd 处，沿切线方向）
   renderArrowHead(endPoint, edge.getArrowDirection().normalize(), (15 * edge.edgeWidth) / 2, edgeColor);

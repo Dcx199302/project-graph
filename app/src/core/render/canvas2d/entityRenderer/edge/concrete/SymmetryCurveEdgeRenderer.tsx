@@ -238,23 +238,18 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
       );
     }
     // 画文字
-    if (edge.text.trim() === "") {
-      return;
+    if (edge.text.trim() !== "") {
+      this.project.shapeRenderer.renderRect(
+        this.project.renderer.transformWorld2View(edge.textRectangle),
+        this.project.stageStyleManager.currentStyle.Background.toNewAlpha(Settings.windowBackgroundAlpha),
+        Color.Transparent,
+        1,
+      );
     }
-    // 画文本底色
-    this.project.shapeRenderer.renderRect(
-      this.project.renderer.transformWorld2View(edge.textRectangle),
-      this.project.stageStyleManager.currentStyle.Background.toNewAlpha(Settings.windowBackgroundAlpha),
-      Color.Transparent,
-      1,
-    );
-    this.project.textRenderer.renderMultiLineTextFromCenter(
-      edge.text,
-      this.project.renderer.transformWorld2View(
-        edge.target.collisionBox.getRectangle().location.add(new Vector(0, -50)),
-      ),
-      edge.textFontSize * this.project.camera.currentScale,
-      Infinity,
+    this.project.edgeRenderer.renderLabel(
+      edge,
+      edge.target.collisionBox.getRectangle().location.add(new Vector(0, -50)),
+      edge.textFontSize,
       edgeColor,
     );
   }
@@ -581,15 +576,12 @@ export class SymmetryCurveEdgeRenderer extends EdgeRendererClass {
   // }
 
   private renderText(curve: SymmetryCurve, edge: LineEdge): void {
-    if (edge.text.trim() === "") {
-      return;
-    }
-    this.project.textRenderer.renderMultiLineTextFromCenterWithStroke(
-      edge.text,
-      this.project.renderer.transformWorld2View(curve.bezier.getPointByT(0.5)),
-      edge.textFontSize * this.project.camera.currentScale,
+    this.project.edgeRenderer.renderLabel(
+      edge,
+      curve.bezier.getPointByT(0.5),
+      edge.textFontSize,
       edge.color.equals(Color.Transparent) ? this.project.stageStyleManager.currentStyle.StageObjectBorder : edge.color,
-      this.project.stageStyleManager.currentStyle.Background,
+      "outlined",
     );
   }
 }

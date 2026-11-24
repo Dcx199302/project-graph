@@ -19,6 +19,56 @@ projectStatus:
   stashed: 已暫存
   unsaved: 有未保存的修改
 
+canvasToolbar:
+  title: 畫布工具
+  selectAndMove: 選擇
+  drag: 拖拽
+  draw: 畫筆
+  connectAndCut: 連線/切割
+  create: 創建
+  tree: 樹與圖
+  align: 對齊
+  layout: 佈局
+  organize: 組織
+  connect: 連線
+  more: 更多
+  penColors: 畫筆顏色
+  defaultPenColor: 默認色
+  penColor: "{{color}}"
+  mindMapLockedSelection: 請選擇可移動的節點
+  actions:
+    createTextNodeFromCameraLocation: 居中新建
+    createTextNodeFromMouseLocation: 指針新建
+    createConnectPointFromMouseLocation: 新建質點
+    createTextNodeFromSelectedTop: 向上新建
+    createTextNodeFromSelectedRight: 向右新建
+    createTextNodeFromSelectedLeft: 向左新建
+    createTextNodeFromSelectedDown: 向下新建
+    generateNodeTreeWithDeepMode: 生長子節點
+    generateNodeTreeWithBroadMode: 生長同級
+    generateNodeTreeWithDeepModeEditEdge: 生長並編輯
+    alignHorizontalSpaceBetween: 水平等距
+    alignVerticalSpaceBetween: 垂直等距
+    alignLeftToRightNoSpace: 緊排成行
+    alignTopToBottomNoSpace: 緊排成列
+    layoutToSquare: 方陣
+    layoutToTightSquare: 緊湊方陣
+    layoutToTightSquareDeep: 遞歸方陣
+    dagGraphAdjust: DAG 佈局
+    packEntityToSection: 分組
+    textNodeToSection: 轉分組框
+    unpackEntityFromSection: 解包
+    folderSection: 摺疊/展開
+    toggleSectionLock: 鎖定/解鎖
+    createTwinTextNode: 孿生節點
+    createUndirectedEdgeFromEntities: 無向連線
+    createMTUEdgeConvex: 凸包
+    connectAllSelectedEntities: 兩兩連線
+    connectLeftToRight: 向右連線
+    connectTopToBottom: 向下連線
+    redo: 重做
+    deleteSelectedStageObjects: 刪除
+
 welcome:
   aboutDescription: 用節點連接想法，用圖譜整理知識。Project Graph 為頭腦風暴、知識管理和項目規劃提供自由畫布，通過連線與自動佈局，讓複雜思路變得清晰。
   slogan: 基於圖論的思維框架圖繪製軟件
@@ -463,7 +513,7 @@ settings:
       none: 無邊框
   autoEnterSectionEditMode:
     title: 創建分組框後自動進入編輯狀態
-    description: 開啟後，使用 Ctrl+G 創建分組框時會自動彈出標題輸入框，方便快速命名。關閉則只選中新分組框，不進入編輯。
+    description: 開啟後，創建分組框時會自動彈出標題輸入框，方便快速命名。關閉則只選中新分組框，不進入編輯。
   alwaysShowDetails:
     title: 始終顯示節點詳細信息
     description: |
@@ -815,7 +865,7 @@ settings:
   treeGenerateInheritParentColor:
     title: 生長節點時繼承父節點顏色
     description: |
-      開啟後，通過 Tab 或 \ 生長出來的新節點會繼承父節點顏色
+      開啟後，生長出來的新節點會繼承父節點顏色
       關閉後，新節點不再自動繼承父節點顏色
   enableTabGenerateNodeInInput:
     title: 在輸入狀態下也能通過深度生長快捷鍵創建子節點
@@ -826,9 +876,8 @@ settings:
   enableBackslashGenerateNodeInInput:
     title: 在輸入狀態下也能通過廣度生長快捷鍵創建同級節點
     description: |
-      開啟後，在文本節點編輯狀態下，按下廣度生長快捷鍵（默認為 \）也可以創建同級節點
-      關閉後，只有在非編輯狀態下才能通過廣度生長快捷鍵創建同級節點
-      注意：廣度生長快捷鍵不支持序列型快捷鍵（如 e \），請確保將其設置為單個按鍵
+      開啟後，可以在編輯文本節點時用自定義快捷鍵向下生長同級節點，例如反斜槓。
+      此處只支持單個按鍵或組合鍵，Enter 繼續用於提交或換行。
   moveAmplitude:
     title: 視角移動加速度
     description: |
@@ -859,7 +908,8 @@ settings:
   mouseLeftMode:
     title: 左鍵模式切換
     options:
-      selectAndMove: 選擇並移動
+      selectAndMove: 選擇
+      drag: 拖拽
       draw: 畫圖
       connectAndCut: 連線與劈砍
   doubleClickMiddleMouseButton:
@@ -899,10 +949,8 @@ settings:
   textNodeStartEditMode:
     title: 文本節點進入編輯模式
     options:
-      enter: Enter
       ctrlEnter: ctrl + Enter
       altEnter: alt + Enter
-      shiftEnter: shift + Enter
       space: 空格鍵
     description: |
       實際上按F2鍵也可以進入編輯模式，這裡還可以再加選一種
@@ -1552,10 +1600,10 @@ keyBinds:
     title: 取消撤銷
     description: 取消上一次撤銷操作
   resetView:
-    title: 重置視野
+    title: 適應視野
     description: |
-      如果沒有選擇任何內容，則根據全部內容重置視野；
-      如果有選擇內容，則根據選中內容重置視野
+      適應選中內容。沒有選中內容時，適應全部內容並在畫布四周留出約 15 像素。
+      再按一次可恢復適應前的位置和縮放。
   restoreCameraState:
     title: 恢復視野狀態
     description: |
@@ -1605,9 +1653,8 @@ keyBinds:
     description: |
       按下後，選中的兩個或者多個實體之間會創建一條無向連線
   packEntityToSection:
-    title: 將選中的實體打包到分組框中
-    description: |
-      按下後，選中的實體會自動包裹到新分組框中
+    title: 分組
+    description: 將選中的實體放入新分組。僅選中一個分組框時，取消分組並保留組內實體。
   unpackEntityFromSection:
     title: 分組框拆包，轉換為文本節點
     description: |
@@ -1659,11 +1706,13 @@ keyBinds:
       如果是穿針連接已有節點，則只創建連線並進入連線文字編輯狀態
       默認快捷鍵說明：先按一下e，再按一下tab。這裡的e表示Edge，邊
   generateNodeTreeWithBroadMode:
-    title: 生長同級節點
+    title: 向下生長同級節點
     description: |
-      按下後，瞬間生長一個同級節點並放置在當前選中節點的下方
-      同時自動排版整個節點樹的結構，確保其是一個向下的樹型結構
-      使用此功能前先確保已選中一個節點、且該節點存在父級節點
+      在選中節點下方創建新節點，並連接到同一組父節點。沒有父節點時創建獨立節點。
+  generateNodeTreeWithBroadModeAbove:
+    title: 向上生長同級節點
+    description: |
+      在選中節點上方創建新節點，並連接到同一組父節點。沒有父節點時創建獨立節點。
   generateNodeGraph:
     title: 生長自由節點
     description: |
@@ -1763,7 +1812,8 @@ keyBinds:
       按下後，停止攝像機飄移，並將速度置為0
   selectAll:
     title: 全選
-    description: 按下後，所有節點和連線都會被選中
+    description: 從選中的節點沿連線選擇關聯節點，重複按鍵在局部和整頁之間切換。沒有可擴展的關聯時全選整頁。
+    globalSelected: 已全選整頁
   selectAtCrosshair:
     title: 選擇十字準心對準的節點
     description: |
@@ -1786,6 +1836,10 @@ keyBinds:
     title: AI：生成摘要
     description: |
       將選中的文本節點內容填入 AI 面板，並預置提示詞用於總結核心內容
+  mindMapLayout:
+    title: 思維導圖
+  fishboneLayout:
+    title: 魚骨圖
   createTextNodeFromCameraLocation:
     title: 在視野中心位置創建文本節點
     description: |
@@ -2018,17 +2072,17 @@ keyBinds:
   resetToDefault:
     title: 重置為默認
   checkoutLeftMouseToSelectAndMove:
-    title: 設置左鍵為“選中/移動”模式
-    description: |
-      也就是鼠標左鍵切換為正常模式
+    title: 切換到選擇模式
+    description: 左鍵單擊選中或拖動框選。
+  toggleMouseDragMode:
+    title: 切換拖拽模式
+    description: 左鍵拖動節點或畫布，再次切換可恢復選擇模式。
   checkoutLeftMouseToDrawing:
-    title: 設置左鍵為“塗鴉”模式
-    description: |
-      也就是鼠標左鍵切換為塗鴉模式，在工具欄中有對應按鈕
+    title: 切換畫筆模式
+    description: 左鍵繪製筆畫，再按一次恢復選擇。
   checkoutLeftMouseToConnectAndCutting:
     title: 設置左鍵為“連線/斬斷”模式
-    description: |
-      也就是鼠標左鍵切換為連線/斬斷 模式，在工具欄中有對應按鈕
+    description: 用左鍵連接節點或切斷連線。
   checkoutLeftMouseToConnectAndCuttingOnlyPressed:
     title: 設置左鍵為“連線/斬斷”模式（僅按下時）
     description: |
@@ -2102,6 +2156,16 @@ keyBinds:
   alignTopToBottomNoSpace:
     title: 向下緊密堆積一列
     description: 小鍵盤豎著從上到下穿一串
+  arrangeSelectedVertical:
+    title: 垂直排列
+  arrangeSelectedHorizontal:
+    title: 水平排列
+  increaseSelectedNodeSpacing:
+    title: 增大節點間距
+    description: 以選區中心為基準拉開選中節點。
+  decreaseSelectedNodeSpacing:
+    title: 縮小節點間距
+    description: 以選區中心為基準收緊選中節點，保留最小間隔。
   layoutToSquare:
     title: 鬆散方陣排列
   layoutToTightSquare:
@@ -2209,7 +2273,7 @@ keyBinds:
   createTwinTextNode:
     title: 創建孿生節點
     description: |
-      為所有選中的文本節點分別創建孿生節點，新節點與原節點內容同步，按 Shift+Y 觸發
+      為所有選中的文本節點分別創建孿生節點，新節點與原節點內容同步，默認按 Shift+Y 觸發
       默認快捷鍵說明：Y 形狀像一個分叉，象徵一個節點分裂成兩個孿生節點
   reverseImageColors:
     title: 反轉圖片顏色

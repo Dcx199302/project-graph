@@ -1,4 +1,5 @@
 import { Project, service } from "@/core/Project";
+import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { Settings } from "@/core/service/Settings";
@@ -9,6 +10,107 @@ import { Section } from "../../stageObject/entity/Section";
 @service("layoutManager")
 export class LayoutManager {
   constructor(private readonly project: Project) {}
+
+  private getSelectedLayoutNodes() {
+    return this.project.stageManager
+      .getSelectedEntities()
+      .filter(
+        (node) =>
+          node instanceof ConnectableEntity &&
+          !(node instanceof Section) &&
+          !node.nearestLockedAncestorSection &&
+          !node.isHiddenBySectionCollapse,
+      );
+  }
+
+  canArrangeSelectedLine() {
+    return this.getSelectedLayoutNodes().length >= 2;
+  }
+
+  arrangeSelectedLine(axis: "horizontal" | "vertical") {
+    const nodes = this.getSelectedLayoutNodes();
+    if (nodes.length < 2) return;
+    const anchor = nodes.reduce((first, node) => (node.selectionOrder < first.selectionOrder ? node : first));
+    const along = axis === "horizontal" ? "x" : "y";
+    const across = axis === "horizontal" ? "y" : "x";
+    const items = nodes.map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
+    items.sort((a, b) => a.rect.center[along] - b.rect.center[along] || a.node.selectionOrder - b.node.selectionOrder);
+    const anchorIndex = items.findIndex(({ node }) => node === anchor);
+    const anchorRect = items[anchorIndex].rect;
+    const gap = 20;
+    const moves: { node: Entity; location: Vector }[] = [];
+    for (const step of [-1, 1]) {
+      let edge = anchorRect.location[along] + (step > 0 ? anchorRect.size[along] : 0);
+      for (let index = anchorIndex + step; index >= 0 && index < items.length; index += step) {
+        const { node, rect } = items[index];
+        const location = rect.location.clone();
+        location[along] = edge + step * gap - (step < 0 ? rect.size[along] : 0);
+        location[across] = anchorRect.center[across] - rect.size[across] / 2;
+        if (!location.equals(rect.location)) moves.push({ node, location });
+        edge = location[along] + (step > 0 ? rect.size[along] : 0);
+      }
+    }
+    this.applyNodeLayout(moves);
+  }
+
+  canAdjustSelectedNodeSpacing(increase: boolean) {
+    const rectangles = this.getSelectedLayoutNodes().map((node) => node.collisionBox.getRectangle());
+    return this.getSpacingFactor(rectangles, increase) !== 1;
+  }
+
+  adjustSelectedNodeSpacing(increase: boolean) {
+    const items = this.getSelectedLayoutNodes().map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
+    const rectangles = items.map(({ rect }) => rect);
+    const factor = this.getSpacingFactor(rectangles, increase);
+    if (factor === 1) return;
+
+    const center = Rectangle.getBoundingRectangle(rectangles).center;
+    const placements = items.map(({ node, rect }) => ({
+      node,
+      rect: new Rectangle(rect.location.add(rect.center.subtract(center).multiply(factor - 1)), rect.size),
+    }));
+    const offset = center.subtract(Rectangle.getBoundingRectangle(placements.map(({ rect }) => rect)).center);
+    this.applyNodeLayout(placements.map(({ node, rect }) => ({ node, location: rect.location.add(offset) })));
+  }
+
+  private getSpacingFactor(rectangles: Rectangle[], increase: boolean) {
+    if (rectangles.length < 2) return 1;
+    const step = 1.12;
+    const centers = rectangles.map((rect) => rect.center);
+    if (increase) return centers.some((center) => !center.equals(centers[0])) ? step : 1;
+
+    const gap = 12;
+    let factor = 1 / step;
+    for (let i = 1; i < rectangles.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const delta = centers[i].subtract(centers[j]);
+        const size = rectangles[i].size.add(rectangles[j].size).divide(2);
+        // 两矩形至少要在一个轴上留出边缘间距。
+        const minimum = Math.min((size.x + gap) / Math.abs(delta.x), (size.y + gap) / Math.abs(delta.y));
+        factor = Math.max(factor, minimum);
+        if (factor >= 1 - 1e-9) return 1;
+      }
+    }
+    return factor;
+  }
+
+  private applyNodeLayout(moves: { node: Entity; location: Vector }[]) {
+    if (!moves.length) return;
+
+    const sections = new Set<Section>();
+    this.project.sectionMoveDepth++;
+    try {
+      for (const { node, location } of moves) {
+        for (let section = node.parentSection; section; section = section.parentSection) sections.add(section);
+        node.moveTo(location);
+      }
+    } finally {
+      this.project.sectionMoveDepth--;
+      for (const section of [...sections].sort((a, b) => b.sectionDepth - a.sectionDepth))
+        section.adjustLocationAndSize();
+    }
+    this.project.historyManager.recordStep();
+  }
 
   // 左侧对齐
   alignLeft() {

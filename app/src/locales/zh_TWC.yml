@@ -10,6 +10,56 @@ projectStatus:
   stashed: 已暫存
   unsaved: 有未儲存的修改
 
+canvasToolbar:
+  title: 畫布工具
+  selectAndMove: 選取
+  drag: 拖曳
+  draw: 畫筆
+  connectAndCut: 連線/切割
+  create: 建立
+  tree: 樹與圖
+  align: 對齊
+  layout: 排版
+  organize: 整理
+  connect: 連線
+  more: 更多
+  penColors: 畫筆顏色
+  defaultPenColor: 預設色
+  penColor: "{{color}}"
+  mindMapLockedSelection: 請選可移動的節點
+  actions:
+    createTextNodeFromCameraLocation: 置中新增
+    createTextNodeFromMouseLocation: 游標處新增
+    createConnectPointFromMouseLocation: 新增質點
+    createTextNodeFromSelectedTop: 向上新增
+    createTextNodeFromSelectedRight: 向右新增
+    createTextNodeFromSelectedLeft: 向左新增
+    createTextNodeFromSelectedDown: 向下新增
+    generateNodeTreeWithDeepMode: 長出子節點
+    generateNodeTreeWithBroadMode: 長出同級
+    generateNodeTreeWithDeepModeEditEdge: 生長並編輯
+    alignHorizontalSpaceBetween: 水平等距
+    alignVerticalSpaceBetween: 垂直等距
+    alignLeftToRightNoSpace: 緊排成列
+    alignTopToBottomNoSpace: 緊排成欄
+    layoutToSquare: 方陣
+    layoutToTightSquare: 緊密方陣
+    layoutToTightSquareDeep: 遞迴方陣
+    dagGraphAdjust: DAG 排版
+    packEntityToSection: 分組
+    textNodeToSection: 轉群組框
+    unpackEntityFromSection: 拆包
+    folderSection: 摺疊/展開
+    toggleSectionLock: 鎖定/解鎖
+    createTwinTextNode: 孿生節點
+    createUndirectedEdgeFromEntities: 無向連線
+    createMTUEdgeConvex: 凸包
+    connectAllSelectedEntities: 兩兩連線
+    connectLeftToRight: 向右連線
+    connectTopToBottom: 向下連線
+    redo: 重做
+    deleteSelectedStageObjects: 刪除
+
 welcome:
   slogan: 基於圖論的思維框架圖繪製軟體
   slogans:
@@ -483,7 +533,7 @@ settings:
       none: 無邊框
   autoEnterSectionEditMode:
     title: 建立分組框後自動進入編輯狀態
-    description: 開啟後，使用 Ctrl+G 建立分組框時會自動彈出標題輸入框，方便快速命名。關閉則只選中新分組框，不進入編輯。
+    description: 開啟後，建立分組框時會自動彈出標題輸入框，方便快速命名。關閉則只選中新分組框，不進入編輯。
   alwaysShowDetails:
     title: 始終顯示節點詳細資訊
     description: 開啟後，無需滑鼠移動到節點上時，才顯示節點的詳細資訊。
@@ -821,7 +871,7 @@ settings:
       關閉後，Tab 將一律走新建節點流程，也不再渲染這些探針提示。'
   treeGenerateInheritParentColor:
     title: 生長節點時繼承父節點顏色
-    description: '開啟後，透過 Tab 或 \ 生長出來的新節點會繼承父節點顏色
+    description: '開啟後，生長出來的新節點會繼承父節點顏色
 
       關閉後，新節點不再自動繼承父節點顏色'
   enableTabGenerateNodeInInput:
@@ -833,11 +883,9 @@ settings:
       注意：深度生長快速鍵不支援序列型快速鍵（如 e tab），請確保將其設定為單一按鍵'
   enableBackslashGenerateNodeInInput:
     title: 在輸入狀態下也能透過廣度生長快速鍵建立同級節點
-    description: '開啟後，在文字節點編輯狀態下，按下廣度生長快速鍵（預設為 \）也可以建立同級節點
-
-      關閉後，只有在非編輯狀態下才能透過廣度生長快速鍵建立同級節點
-
-      注意：廣度生長快速鍵不支援序列型快速鍵（如 e \），請確保將其設定為單一按鍵'
+    description: |
+      開啟後，可以在編輯文字節點時用自訂快速鍵向下生長同級節點，例如反斜線。
+      此處只支援單一按鍵或組合鍵，Enter 繼續用於提交或換行。
   moveAmplitude:
     title: 視角移動加速度
     description: '此設定項用於 使用W S A D按鍵來上下左右移動視角時的情境
@@ -872,7 +920,8 @@ settings:
   mouseLeftMode:
     title: 左鍵模式切換
     options:
-      selectAndMove: 選擇並移動
+      selectAndMove: 選取
+      drag: 拖曳
       draw: 畫圖
       connectAndCut: 連線與劈砍
   doubleClickMiddleMouseButton:
@@ -909,10 +958,8 @@ settings:
   textNodeStartEditMode:
     title: 文字節點進入編輯模式
     options:
-      enter: Enter
       ctrlEnter: ctrl + Enter
       altEnter: alt + Enter
-      shiftEnter: shift + Enter
       space: 空白鍵
     description: 實際上按F2鍵也可以進入編輯模式，這裡還可以再加選一種
   textNodeExitEditMode:
@@ -1769,10 +1816,10 @@ keyBinds:
     title: 取消撤销
     description: 取消上一次撤销操作
   resetView:
-    title: 重置視野
-    description: '如果沒有選擇任何內容，則根據全部內容重置視野；
-
-      如果有選擇內容，則根據選取內容重置視野'
+    title: 適應視野
+    description: |
+      縮放至選取內容。沒有選取內容時，顯示全部內容並在畫布四周保留約 15 像素。
+      再按一次可恢復先前的位置與縮放。
   restoreCameraState:
     title: 恢復視野狀態
     description: 按下後，恢復到之前按下F鍵時記錄的攝影機位置和縮放大小
@@ -1841,8 +1888,8 @@ keyBinds:
     title: 選取的實體之間建立無向連線
     description: 按下後，選取的兩個或多個實體之間會建立一條無向連線
   packEntityToSection:
-    title: 將選取的實體打包到分组框中
-    description: 按下後，選取的實體會自動包裹到新 分组框中
+    title: 分組
+    description: 把選取的物件放進新分組。只選取一個分組框時，取消分組並保留組內物件。
   unpackEntityFromSection:
     title: 分组框拆包，轉換為文字節點
     description: '按下後，選取的分组框中的實體會被拆解，自身轉換成一個文字節點
@@ -1897,12 +1944,13 @@ keyBinds:
       如果是穿針連接已有節點，則只建立連線並進入連線文字編輯狀態
       預設快捷鍵說明：先按一下e，再按一下tab。這裡的e表示Edge，邊'
   generateNodeTreeWithBroadMode:
-    title: 生長同級節點
-    description: '按下後，瞬間生長一個同級節點並放置在目前選取節點的下方
-
-      同時自動排版整個節點樹的結構，確保其是一個向下的樹狀結構
-
-      使用此功能前先確保已選取一個節點、且該節點存在父級節點'
+    title: 向下生長同級節點
+    description: |
+      在選取節點下方建立新節點，並連接到同一組父節點。沒有父節點時建立獨立節點。
+  generateNodeTreeWithBroadModeAbove:
+    title: 向上生長同級節點
+    description: |
+      在選取節點上方建立新節點，並連接到同一組父節點。沒有父節點時建立獨立節點。
   generateNodeGraph:
     title: 生長自由節點
     description: |
@@ -1998,7 +2046,8 @@ keyBinds:
     description: 按下後，停止攝影機飄移，並將速度設為0
   selectAll:
     title: 全選
-    description: 按下後，所有節點和連線都會被選取
+    description: 從選取的節點沿著連線選取相關節點，重複按鍵可在局部和整張畫布之間切換。沒有相關節點時全選畫布。
+    globalSelected: 已全選畫布
   selectAtCrosshair:
     title: 選擇十字準心對準的節點
     description: |
@@ -2021,6 +2070,10 @@ keyBinds:
     title: AI：生成摘要
     description: |
       將選取的文字節點內容填入 AI 面板，並預置提示詞用於總結核心內容
+  mindMapLayout:
+    title: 心智圖
+  fishboneLayout:
+    title: 魚骨圖
   createTextNodeFromCameraLocation:
     title: 在視野中心位置建立文字節點
     description: '按下後，在目前視野中心的位置建立一個文字節點
@@ -2031,6 +2084,10 @@ keyBinds:
     description: '按下後，在滑鼠懸浮位置建立一個文字節點
 
       等同於滑鼠單擊建立節點的功能'
+  createConnectPointFromMouseLocation:
+    title: 在滑鼠位置建立質點
+  createMTUEdgeConvex:
+    title: 建立凸包
   createTextNodeFromSelectedTop:
     title: 在目前選取的節點正上方建立文字節點
     description: 按下後，在目前選取的節點正上方建立一個文字節點
@@ -2231,14 +2288,17 @@ keyBinds:
   resetToDefault:
     title: 重置為默認
   checkoutLeftMouseToSelectAndMove:
-    title: 設定左鍵為“選取/移動”模式
-    description: 也就是滑鼠左鍵切換為正常模式
+    title: 切換到選取模式
+    description: 按一下左鍵選取，或拖曳框選。
+  toggleMouseDragMode:
+    title: 切換拖曳模式
+    description: 用左鍵拖曳節點或畫布，再按一次回到選取模式。
   checkoutLeftMouseToDrawing:
-    title: 設定左鍵為“塗鴉”模式
-    description: 也就是滑鼠左鍵切換為塗鴉模式，在工具列中有對應按鈕
+    title: 切換畫筆模式
+    description: 用左鍵繪製筆畫，再按一次回到選取模式。
   checkoutLeftMouseToConnectAndCutting:
     title: 設定左鍵為“連線/斬斷”模式
-    description: 也就是滑鼠左鍵切換為連線/斬斷 模式，在工具列中有對應按鈕
+    description: 用左鍵連接節點或切斷連線。
   checkoutLeftMouseToConnectAndCuttingOnlyPressed:
     title: 設定左鍵為“連線/斬斷”模式（僅按下時）
     description: 放開時切換回預設的滑鼠模式
@@ -2311,6 +2371,16 @@ keyBinds:
   alignTopToBottomNoSpace:
     title: 向下緊密堆積一列
     description: 小鍵盤直著從上到下穿一串
+  arrangeSelectedVertical:
+    title: 垂直排列
+  arrangeSelectedHorizontal:
+    title: 水平排列
+  increaseSelectedNodeSpacing:
+    title: 拉開節點間距
+    description: 以選取範圍的中心為基準，拉開選取的節點。
+  decreaseSelectedNodeSpacing:
+    title: 縮小節點間距
+    description: 把選取的節點往中心靠攏，保留最小間隔。
   layoutToSquare:
     title: 松散方阵排列
   layoutToTightSquare:
@@ -2396,7 +2466,7 @@ keyBinds:
     description: 將所有選取的文字節點的詳細資訊和實際內容進行交換，連按5次e，主要用於直接貼上的文字內容想寫入詳細資訊
   createTwinTextNode:
     title: 建立孿生節點
-    description: 為所有選取的文字節點分別建立孿生節點，新節點與原節點內容同步，按 Shift+Y 觸發
+    description: 為所有選取的文字節點分別建立孿生節點，新節點與原節點內容同步，預設按 Shift+Y 觸發
   reverseImageColors:
     title: 反轉圖片顏色
     description: 反轉選取圖片的顏色（將白色背景變為黑色，反之亦然）

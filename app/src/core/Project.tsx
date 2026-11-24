@@ -95,6 +95,8 @@ import { ProjectUpgrader } from "./stage/ProjectUpgrader";
 import { ReferenceManager } from "./stage/stageManager/concreteMethods/StageReferenceManager";
 import { Tab } from "./Tab";
 
+const ToolbarContent = React.lazy(() => import("@/components/toolbar-content"));
+
 export enum ProjectState {
   /**
    * “已保存”
@@ -504,6 +506,9 @@ export class Project extends Tab {
         return (
           <div className="absolute inset-0 overflow-hidden">
             <div className="absolute inset-0 overflow-hidden" ref={this.containerRef}></div>
+            <React.Suspense>
+              <ToolbarContent project={self} />
+            </React.Suspense>
             {this.state.showQuickSettingsToolbar && <RightToolbar />}
           </div>
         );
@@ -516,6 +521,9 @@ export class Project extends Tab {
     return (
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 overflow-hidden" ref={this.containerRef}></div>
+        <React.Suspense>
+          <ToolbarContent project={this} />
+        </React.Suspense>
         {Settings.showQuickSettingsToolbar && <RightToolbar />}
       </div>
     );

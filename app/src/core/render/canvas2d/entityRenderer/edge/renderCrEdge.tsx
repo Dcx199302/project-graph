@@ -30,23 +30,17 @@ export function renderCrEdge(
       2 * project.camera.currentScale,
     );
   }
+  const textRect = edge.textRectangle;
   // 画文字
   if (edge.text !== "") {
-    const textRect = edge.textRectangle;
     project.shapeRenderer.renderRect(
       project.renderer.transformWorld2View(textRect),
       project.stageStyleManager.currentStyle.Background,
       Color.Transparent,
       0,
     );
-    project.textRenderer.renderMultiLineTextFromCenter(
-      edge.text,
-      project.renderer.transformWorld2View(textRect.center),
-      Renderer.FONT_SIZE * project.camera.currentScale,
-      Infinity,
-      edgeColor,
-    );
   }
+  project.edgeRenderer.renderLabel(edge, textRect.center, Renderer.FONT_SIZE, edgeColor);
   // 画箭头
   const { location, direction } = edge.getArrowHead();
   renderArrowHead(location, direction.normalize(), 15, edgeColor);

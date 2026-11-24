@@ -6,6 +6,8 @@ import { serializable } from "@graphif/serializer";
 import { Line, Rectangle } from "@graphif/shapes";
 import { ConnectPoint } from "../entity/ConnectPoint";
 
+export type PreservedGraphLayout = "dag" | "fishbone" | "mindMap";
+
 /**
  * 连接两个实体的有向边
  */
@@ -16,6 +18,9 @@ export abstract class Edge extends ConnectableAssociation {
    */
   public abstract text: string;
   abstract collisionBox: CollisionBox;
+
+  @serializable
+  public graphLayout?: PreservedGraphLayout;
 
   get isHiddenBySectionCollapse(): boolean {
     return this.source.isHiddenBySectionCollapse && this.target.isHiddenBySectionCollapse;

@@ -48,15 +48,17 @@ export class Canvas {
       }
       if (!shouldRedirectKeyboardEvent()) return;
       if (project.isRunning) {
-        element.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: event.key,
-            altKey: event.altKey,
-            ctrlKey: event.ctrlKey,
-            shiftKey: event.shiftKey,
-            metaKey: event.metaKey,
-          }),
-        );
+        const redirectedEvent = new KeyboardEvent("keydown", {
+          key: event.key,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+          repeat: event.repeat,
+          isComposing: event.isComposing,
+          cancelable: true,
+        });
+        if (!element.dispatchEvent(redirectedEvent)) event.preventDefault();
       }
     });
     window.addEventListener("keyup", (event) => {

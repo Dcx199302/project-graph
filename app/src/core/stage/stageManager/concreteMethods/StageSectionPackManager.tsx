@@ -277,6 +277,16 @@ export class SectionPackManager {
     this.project.historyManager.recordStep();
   }
 
+  ungroupSection(section: Section) {
+    if (section.locked || section.nearestLockedAncestorSection) return;
+
+    const children = [...section.children];
+    // 删除折叠的分组框通常也会删掉组内实体。
+    section.isCollapsed = false;
+    this.project.stageManager.deleteEntities([section]);
+    for (const child of children) child.isSelected = !child.isHiddenBySectionCollapse;
+  }
+
   /**
    * 打包的反操作：拆包
    * @param entities 要拆包的实体

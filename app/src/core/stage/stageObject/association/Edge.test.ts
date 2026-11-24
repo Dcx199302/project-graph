@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Vector } from "@graphif/data-structures";
+import { deserialize, serialize } from "@graphif/serializer";
+import { decode, encode } from "@msgpack/msgpack";
 import { Rectangle } from "@graphif/shapes";
 
 const setting = vi.hoisted(() => ({ style: (() => {}) as (value: string) => void }));
@@ -107,4 +109,17 @@ describe("edge geometry cache", () => {
     Object.setPrototypeOf(source, Section.prototype);
     expect(edge.collisionBox.getRectangle().height).toBe(200);
   });
+});
+
+it("preserves graph layout on reload and recognizes the legacy fishbone flag", () => {
+  const edge = new LineEdge({} as never, {});
+  const olderEdge = { ...serialize(edge), graphLayout: undefined };
+  const reload = (data: object) => deserialize(decode(encode(data)), {}) as LineEdge;
+  expect(reload(olderEdge).graphLayout).toBeUndefined();
+  expect(reload({ ...olderEdge, fishboneLayout: true }).graphLayout).toBe("fishbone");
+
+  for (const layout of ["fishbone", "dag", "mindMap"] as const) {
+    edge.graphLayout = layout;
+    expect(reload(serialize(edge)).graphLayout).toBe(layout);
+  }
 });

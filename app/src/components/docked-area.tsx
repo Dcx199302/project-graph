@@ -49,7 +49,16 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
       )}
     >
       <span className="truncate">{viewHint || text}</span>
-      <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-xs" onClick={() => project.camera.reset()}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 shrink-0 px-2 text-xs"
+        onClick={() => {
+          project.camera.toggleFitView();
+          project.controller.resetCountdownTimer();
+          project.loop();
+        }}
+      >
         {t("fitView")}
       </Button>
     </div>
@@ -211,6 +220,7 @@ export default function DockedArea({
         }}
       >
         <div
+          data-pg-canvas-tab-bar
           data-pg-window-top-tabs={atWindowTop ? "" : undefined}
           className={cn(
             "pointer-events-none relative z-10 flex shrink-0 items-center",

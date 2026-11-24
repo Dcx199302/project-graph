@@ -41,28 +41,13 @@ export class RectangleSelect {
   }
 
   startSelecting(worldLocation: Vector) {
-    const isHaveEdgeSelected = this.project.stageManager
-      .getAssociations()
-      .some((association) => association.isSelected);
-    const isHaveEntitySelected = this.project.stageManager.getEntities().some((entity) => entity.isSelected);
-
     this.limitSection = this.project.sectionMethods.getInnermostSectionByLocation(worldLocation);
 
-    if (isHaveEntitySelected || isHaveEdgeSelected) {
-      // A
-      if (
-        this.project.controller.pressingKeySet.has("shift") ||
-        (isMac
-          ? this.project.controller.pressingKeySet.has("meta")
-          : this.project.controller.pressingKeySet.has("control"))
-      ) {
-        // 不取消选择
-      } else {
-        // 取消选择所
-        this.project.stageManager.getStageObjects().forEach((stageObject) => {
-          stageObject.isSelected = false;
-        });
-      }
+    if (
+      !this.project.controller.pressingKeySet.has("shift") &&
+      !this.project.controller.pressingKeySet.has(isMac ? "meta" : "control")
+    ) {
+      this.project.stageManager.clearSelectAll();
     }
     // 更新矩形状态
     this.selectingRectangle = new Rectangle(worldLocation.clone(), Vector.getZero());
@@ -150,9 +135,7 @@ export class RectangleSelect {
       // 移动过程中不先暴力清除
     } else {
       // 先清空所有已经选择了的
-      this.project.stageManager.getStageObjects().forEach((stageObject) => {
-        stageObject.isSelected = false;
-      });
+      this.project.stageManager.clearSelectAll();
     }
 
     if (

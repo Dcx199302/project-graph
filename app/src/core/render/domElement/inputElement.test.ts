@@ -19,6 +19,7 @@ vi.mock("@/core/service/Settings", () => ({
     textNodeExitEditMode: "enter",
     textNodeContentLineBreak: "shiftEnter",
     enableBackslashGenerateNodeInInput: true,
+    enableTabGenerateNodeInInput: true,
   },
 }));
 
@@ -81,12 +82,30 @@ it("keeps Enter and Shift+Enter available for submission and line breaks in the 
   expect(growSibling).not.toHaveBeenCalled();
 });
 
+it("keeps Tab as the only default shortcut for growing a child from the node editor", async () => {
+  const id = "generateNodeTreeWithDeepMode";
+  const grow = vi.fn();
+  vi.mocked(KeyBindsUI.getUIKeyBind).mockImplementation((requestedId) =>
+    requestedId === id ? { id, key: "tab", isEnabled: true, when: () => true, onPress: vi.fn() } : undefined,
+  );
+  const input = new InputElement({ keyboardOnlyTreeEngine: { onDeepGenerateNode: grow } } as unknown as Project);
+  const result = input.textarea("父节点子节点");
+  const editor = document.activeElement as HTMLTextAreaElement;
+  editor.setSelectionRange(3, 3);
+  editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true }));
+  expect(editor.isConnected).toBe(true);
+  expect(grow).not.toHaveBeenCalled();
+  expect(editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true }))).toBe(false);
+  await expect(result).resolves.toBe("父节点");
+  expect(grow).toHaveBeenCalledExactlyOnceWith("子节点", false);
+});
+
 it.each([
   ["Top", "ArrowUp"],
   ["Right", "ArrowRight"],
   ["Left", "ArrowLeft"],
   ["Down", "ArrowDown"],
-])("commits node text and continues editing a new node with Alt+%s", async (direction, key) => {
+])("commits node text and continues editing a new node with Command+%s", async (direction, key) => {
   const project = {} as Project;
   const input = new InputElement(project);
   const commit = vi.fn();
@@ -100,12 +119,12 @@ it.each([
   });
   vi.mocked(KeyBindsUI.getUIKeyBind).mockImplementation((id) =>
     id === `createTextNodeFromSelected${direction}`
-      ? { key: `A-${key.toLowerCase()}`, isEnabled: true, when: () => true, onPress, id }
+      ? { key: `M-${key.toLowerCase()}`, isEnabled: true, when: () => true, onPress, id }
       : undefined,
   );
 
   editor.value = "编辑后的文字";
-  const event = new KeyboardEvent("keydown", { key, altKey: true, cancelable: true });
+  const event = new KeyboardEvent("keydown", { key, metaKey: true, cancelable: true });
   expect(editor.dispatchEvent(event)).toBe(false);
   expect(onPress).toHaveBeenCalledExactlyOnceWith(project);
   await expect(result).resolves.toBe("编辑后的文字");

@@ -3,7 +3,8 @@ import { Vector } from "@graphif/data-structures";
 export interface ControllerInputHandlers {
   down(event: PointerEvent): void;
   move(event: PointerEvent): void;
-  up(event: PointerEvent): void;
+  /** 返回 true 时，这次松开不参与后续的单击和双击判断。 */
+  up(event: PointerEvent): boolean | void;
   /** 单击另有用途时，等确认拖动后才派发按下事件。 */
   getClickAction(event: PointerEvent): (() => void) | undefined;
   middleClick(event: PointerEvent): boolean;
@@ -103,8 +104,8 @@ export class ControllerInput {
       this.handlers.down(press.deferred.event);
       this.handlers.move(event);
     }
-    this.handlers.up(event);
-    if (!isClick) {
+    const consumed = this.handlers.up(event);
+    if (consumed || !isClick) {
       this.lastClick = null;
       return;
     }

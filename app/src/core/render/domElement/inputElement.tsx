@@ -351,10 +351,15 @@ export class InputElement {
           event.key !== "Enter" && broadKeyBind?.isEnabled && !broadKeyBind.key.trim().includes(" ");
         const isBroadKeyMatch = isBroadKeySingleKey && matchSingleEmacsKey(broadKeyBind!.key.trim(), event);
 
-        // 动态检测深度生长快捷键（generateNodeTreeWithDeepMode）
         const deepKeyBind = edgeLabel ? undefined : KeyBindsUI.getUIKeyBind("generateNodeTreeWithDeepMode");
-        const isDeepKeySingleKey = deepKeyBind && !deepKeyBind.key.trim().includes(" ");
-        const isDeepKeyMatch = isDeepKeySingleKey && matchSingleEmacsKey(deepKeyBind!.key.trim(), event);
+        const deepKey = deepKeyBind?.key.trim();
+        const isDeepKeyMatch =
+          deepKeyBind?.isEnabled &&
+          deepKey &&
+          !/\s/.test(deepKey) &&
+          !event.isComposing &&
+          !isComposing &&
+          matchSingleEmacsKey(deepKey, event);
 
         if (isBroadKeyMatch) {
           const currentSelectNode = this.project.stageManager.getConnectableEntity().find((node) => node.isSelected);

@@ -1,9 +1,12 @@
 import { Project, service } from "@/core/Project";
 import { RectanglePushInEffect } from "@/core/service/feedbackService/effectEngine/concrete/RectanglePushInEffect";
 import { Settings } from "@/core/service/Settings";
+import { ConnectableAssociation } from "@/core/stage/stageObject/abstract/Association";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
+import { Edge } from "@/core/stage/stageObject/association/Edge";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { ConnectPoint } from "@/core/stage/stageObject/entity/ConnectPoint";
+import { ImageNode } from "@/core/stage/stageObject/entity/ImageNode";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { DetailsManager } from "@/core/stage/stageObject/tools/entityDetailsManager";
@@ -115,22 +118,106 @@ export class NodeAdder {
     const selectedEntity = selectedEntities[0];
     const source = selectedEntity.collisionBox.getRectangle();
     const sections = selectedEntity.parentSection ? [selectedEntity.parentSection] : [];
-    const gap = 48;
+    const connections = this.project.stageManager
+      .getAssociations()
+      .filter(
+        (edge): edge is ConnectableAssociation =>
+          edge instanceof ConnectableAssociation && edge.associationList.includes(selectedEntity),
+      );
+    if (connections.length > 0) {
+      return this.project.keyboardOnlyTreeEngine.generateChildNode("", true, false, {
+        parent: selectedEntity,
+        direction,
+        selectCurrent,
+        connections,
+      });
+    }
     return this.addTextNodeByClick(source.center, sections, selectCurrent, true, {
       overrideFontScaleLevel: selectedEntity instanceof TextNode ? selectedEntity.fontScaleLevel : 0,
-      getTopLeft: (size) => {
-        switch (direction) {
-          case Direction.Up:
-            return new Vector(source.left, source.top - gap - size.y);
-          case Direction.Down:
-            return new Vector(source.left, source.bottom + gap);
-          case Direction.Left:
-            return new Vector(source.left - gap - size.x, source.top);
-          case Direction.Right:
-            return new Vector(source.right + gap, source.top);
-        }
-      },
+      getTopLeft: (size) => this.findDirectionalNodeLocation(selectedEntity, direction, size, 64),
     });
+  }
+
+  public findDirectionalNodeLocation(
+    anchor: ConnectableEntity,
+    direction: Direction,
+    size: Vector,
+    gap: number,
+    connections: readonly ConnectableAssociation[] = [],
+  ): Vector {
+    const source = anchor.collisionBox.getRectangle();
+    const clearance = 16;
+    const horizontal = direction === Direction.Left || direction === Direction.Right;
+    const backward = direction === Direction.Left || direction === Direction.Up;
+    const axis = horizontal ? "x" : "y";
+    const location = source.location.clone();
+    if (!horizontal) location.x = source.center.x - size.x / 2;
+    const boundary = source.location[axis] + (backward ? 0 : source.size[axis]);
+    location[axis] = backward ? boundary - gap - size[axis] : boundary + gap;
+    const cross = horizontal ? "y" : "x";
+    const sideBranches = this.getBranchesOnSide(anchor, direction, source, connections);
+    const searchAxis = sideBranches.length > 0 ? cross : axis;
+    const searchBackward = sideBranches.length === 0 && backward;
+    // 同侧有分支时沿垂直于生长的方向排开，避免新节点落在现有连线上。
+    for (const branch of sideBranches) {
+      location[cross] = Math.max(location[cross], branch.location[cross] + branch.size[cross] + clearance * 2);
+    }
+    const ancestors = new Set<Section>();
+    for (let section = anchor.parentSection; section; section = section.parentSection) ancestors.add(section);
+
+    const obstacles = this.project.stageManager
+      .getEntities()
+      .filter(
+        (entity) =>
+          entity !== anchor &&
+          !entity.isHiddenBySectionCollapse &&
+          !(entity instanceof Section && ancestors.has(entity)) &&
+          !(entity instanceof ImageNode && entity.isBackground),
+      )
+      .map((entity) => entity.collisionBox.getRectangle().expandFromCenter(clearance));
+    const near = (box: Rectangle) =>
+      searchBackward ? -(box.location[searchAxis] + box.size[searchAxis]) : box.location[searchAxis];
+    obstacles.sort((a, b) => near(a) - near(b));
+    const candidate = new Rectangle(location, size);
+    for (const box of obstacles) {
+      if (candidate.isCollideWith(box)) {
+        location[searchAxis] = searchBackward
+          ? box.location[searchAxis] - size[searchAxis]
+          : box.location[searchAxis] + box.size[searchAxis];
+      }
+    }
+    return location;
+  }
+
+  private getBranchesOnSide(
+    anchor: ConnectableEntity,
+    direction: Direction,
+    source: Rectangle,
+    connections: readonly ConnectableAssociation[],
+  ): Rectangle[] {
+    const branches: Rectangle[] = [];
+    const center = source.center;
+    for (const connection of connections) {
+      const geometry = connection instanceof Edge ? connection.bodyLineGeometry : undefined;
+      const rate = geometry ? (connection.source === anchor ? geometry.sourceRate : geometry.targetRate) : undefined;
+      const normal = rate && Edge.getNormalVectorByRate(rate);
+      for (const node of connection.associationList) {
+        if (node === anchor || node.isHiddenBySectionCollapse) continue;
+        const rect = node.collisionBox.getRectangle();
+        const { x, y } = normal ?? rect.center.subtract(center);
+        if (!x && !y) continue;
+        const side =
+          Math.abs(x) >= Math.abs(y)
+            ? x < 0
+              ? Direction.Left
+              : Direction.Right
+            : y < 0
+              ? Direction.Up
+              : Direction.Down;
+        if (side === direction) branches.push(rect);
+      }
+    }
+    return branches;
   }
 
   private async getAutoName(): Promise<string> {

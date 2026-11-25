@@ -549,20 +549,8 @@ export class Renderer {
 
   /** 层级移动时，渲染移动指向线 */
   private rendererLayerMovingLine() {
-    if (!this.project.controller.layerMoving.isEnabled) {
-      return;
-    }
-    // 有alt
-    if (!this.project.controller.pressingKeySet.has("alt")) {
-      return;
-    }
-    // 有alt且仅按下了alt键
-    if (this.project.controller.pressingKeySet.size !== 1) {
-      return;
-    }
-    if (this.project.stageManager.getSelectedEntities().length === 0) {
-      return;
-    }
+    const { isActive, targetLocation: mouseLocation } = this.project.controller.layerMoving;
+    if (!isActive || !mouseLocation) return;
 
     const boundingRectangle = Rectangle.getBoundingRectangle(
       this.project.stageManager.getSelectedEntities().map((entity) => {
@@ -570,12 +558,10 @@ export class Renderer {
       }),
     );
     const targetBoundingRectangle = new Rectangle(
-      boundingRectangle.location.add(this.project.controller.mouseLocation.subtract(boundingRectangle.location)),
+      boundingRectangle.location.add(mouseLocation.subtract(boundingRectangle.location)),
       boundingRectangle.size.clone(),
     );
-    const targetSections = this.project.sectionMethods.getSectionsByInnerLocation(
-      this.project.controller.mouseLocation,
-    );
+    const targetSections = this.project.sectionMethods.getSectionsByInnerLocation(mouseLocation);
     for (const targetSection of targetSections) {
       const sectionAndSelectedBoundingRectagnle = Rectangle.getBoundingRectangle([
         targetBoundingRectangle,
@@ -617,7 +603,7 @@ export class Renderer {
     this.renderJumpLine(boundingRectangle.leftTop, targetBoundingRectangle.leftTop);
     this.project.textRenderer.renderTextFromCenter(
       "Jump To",
-      this.transformWorld2View(this.project.controller.mouseLocation).subtract(new Vector(0, -30)),
+      this.transformWorld2View(mouseLocation).subtract(new Vector(0, -30)),
       16,
       this.project.stageStyleManager.currentStyle.CollideBoxPreSelected.toSolid(),
     );

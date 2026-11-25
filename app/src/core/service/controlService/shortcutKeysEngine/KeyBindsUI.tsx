@@ -234,10 +234,22 @@ export namespace KeyBindsUI {
     const toolbarPackShortcutMigrated = (await store.get<boolean>("toolbarPackShortcutMigrated")) === true;
     const toolbarGroupShortcutMigrated = (await store.get<boolean>("toolbarGroupShortcutMigrated")) === true;
     const toolbarDragShortcutMigrated = (await store.get<boolean>("toolbarDragShortcutMigrated")) === true;
+    const directionalShortcutsMigrated = (await store.get<boolean>("directionalShortcutsMigrated")) === true;
     const previousToolbarKeys = new Map([
       ["packEntityToSection", isMac ? "M-g" : "C-g"],
       ["createTwinTextNode", "y"],
     ]);
+    const previousDirectionalKeys = new Map([
+      ["createTextNodeFromSelectedTop", "A-arrowup"],
+      ["createTextNodeFromSelectedDown", "A-arrowdown"],
+      ["createTextNodeFromSelectedLeft", "A-arrowleft"],
+      ["createTextNodeFromSelectedRight", "A-arrowright"],
+      ["moveUpSelectedEntities", "C-arrowup"],
+      ["moveDownSelectedEntities", "C-arrowdown"],
+      ["moveLeftSelectedEntities", "C-arrowleft"],
+      ["moveRightSelectedEntities", "C-arrowright"],
+    ]);
+    const platformKey = (key: string) => (isMac ? transEmacsKeyWinToMac(key) : key);
     for (const keybind of allKeyBinds.filter((keybindItem) => !keybindItem.isGlobal)) {
       const savedData = await store.get<any>(keybind.id);
       let key: string;
@@ -245,10 +257,7 @@ export namespace KeyBindsUI {
 
       if (!savedData) {
         // 没有保存过，走默认设置
-        key = keybind.defaultKey;
-        if (isMac) {
-          key = transEmacsKeyWinToMac(key);
-        }
+        key = platformKey(keybind.defaultKey);
         isEnabled = keybind.defaultEnabled !== false;
         await store.set(keybind.id, { key, isEnabled });
       } else if (typeof savedData === "string") {
@@ -269,6 +278,11 @@ export namespace KeyBindsUI {
         await store.set("macRedoShortcutMigrated", true);
       }
       const previousToolbarKey = previousToolbarKeys.get(keybind.id);
+      const previousDirectionalKey = previousDirectionalKeys.get(keybind.id);
+      if (!directionalShortcutsMigrated && previousDirectionalKey && key === platformKey(previousDirectionalKey)) {
+        key = platformKey(keybind.defaultKey);
+        await store.set(keybind.id, { key, isEnabled });
+      }
       if (
         (keybind.id === "checkoutLeftMouseToDrawing" && key === "b b b") ||
         (keybind.id === "generateNodeTreeWithBroadMode" && key === "\\") ||
@@ -297,6 +311,7 @@ export namespace KeyBindsUI {
     if (!toolbarPackShortcutMigrated) await store.set("toolbarPackShortcutMigrated", true);
     if (!toolbarGroupShortcutMigrated) await store.set("toolbarGroupShortcutMigrated", true);
     if (!toolbarDragShortcutMigrated) await store.set("toolbarDragShortcutMigrated", true);
+    if (!directionalShortcutsMigrated) await store.set("directionalShortcutsMigrated", true);
     await store.save();
   }
   /**
@@ -572,7 +587,7 @@ export namespace KeyBindsUI {
    * 检查是否应该处理键盘事件
    * 当有文本输入元素获得焦点时，不处理键盘事件
    */
-  function shouldProcessKeyboardEvent() {
+  export function shouldProcessKeyboardEvent() {
     const focused = document.activeElement;
     return !(
       focused?.tagName === "INPUT" ||
@@ -682,6 +697,13 @@ export namespace KeyBindsUI {
     if (await interceptInput(event)) {
       event.preventDefault();
       return;
+    }
+    if (event.key === "Escape") {
+      cancelPendingToggle();
+      if (event.defaultPrevented) {
+        userEventQueue.clear();
+        return;
+      }
     }
     if (pendingToggle) await resolvePendingToggleBefore(event);
 

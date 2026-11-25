@@ -1,4 +1,5 @@
 import { Project, service } from "@/core/Project";
+import type { ConnectableAssociation } from "@/core/stage/stageObject/abstract/Association";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Edge, type PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { toast } from "sonner";
@@ -126,26 +127,26 @@ export class KeyboardOnlyTreeEngine {
     if (incomingEdges.length === 0) {
       return "right";
     }
-    const directionCount: Record<string, number> = { right: 0, left: 0, down: 0, up: 0 };
-    incomingEdges.forEach((edge) => {
-      if (edge.isRightToLeft()) {
-        directionCount.left++;
-      } else if (edge.isLeftToRight()) {
-        directionCount.right++;
-      } else if (edge.isBottomToTop()) {
-        directionCount.up++;
-      } else if (edge.isTopToBottom()) {
-        directionCount.down++;
-      }
-    });
+    const directions = [
+      [Direction.Right, "right"],
+      [Direction.Left, "left"],
+      [Direction.Down, "down"],
+      [Direction.Up, "up"],
+    ] as const;
+    const counts = new Map<Direction, number>();
+    for (const edge of incomingEdges) {
+      const direction = edge.getTreeDirection();
+      if (direction !== undefined) counts.set(direction, (counts.get(direction) ?? 0) + 1);
+    }
     let maxCount = 0;
     let direction: "right" | "left" | "down" | "up" = "right";
-    Object.entries(directionCount).forEach(([dir, count]) => {
+    for (const [side, dir] of directions) {
+      const count = counts.get(side) ?? 0;
       if (count > maxCount) {
         maxCount = count;
-        direction = dir as "right" | "left" | "down" | "up";
+        direction = dir;
       }
-    });
+    }
     return direction;
   }
 
@@ -405,20 +406,38 @@ export class KeyboardOnlyTreeEngine {
     return validation.isValid;
   }
 
-  generateChildNode(defaultText = "", selectAll = true, editEdgeFirst = false) {
-    const rootNode = this.project.stageManager.getConnectableEntity().find((node) => node.isSelected);
-    if (!rootNode) return;
+  generateChildNode(
+    defaultText = "",
+    selectAll = true,
+    editEdgeFirst = false,
+    placement?: {
+      parent: ConnectableEntity;
+      direction: Direction;
+      selectCurrent: boolean;
+      connections: readonly ConnectableAssociation[];
+    },
+  ): string {
+    const rootNode =
+      placement?.parent ?? this.project.stageManager.getConnectableEntity().find((node) => node.isSelected);
+    if (!rootNode) return "";
     this.project.camera.clearMoveCommander();
     this.project.camera.speed = Vector.getZero();
     // 确定创建方向：默认向右
     const layout = this.project.autoLayout.getPreservedLayout(rootNode);
-    const direction = this.getNodePreDirection(rootNode, layout);
+    const directions = {
+      [Direction.Up]: "up",
+      [Direction.Down]: "down",
+      [Direction.Left]: "left",
+      [Direction.Right]: "right",
+    } as const;
+    const direction = placement ? directions[placement.direction] : this.getNodePreDirection(rootNode, layout);
 
     // 检测生长探测线上是否有可连接实体（线段相交检测，比点命中范围更大）
     {
-      const targetEntity = Settings.enableTreeGenerateConnectByProbe
-        ? this.findConnectTargetByGrowthLine(rootNode, direction)
-        : null;
+      const targetEntity =
+        !placement && Settings.enableTreeGenerateConnectByProbe
+          ? this.findConnectTargetByGrowthLine(rootNode, direction)
+          : null;
       if (targetEntity !== null) {
         // 有可连接实体且尚无连线：直接连线，不新建节点
         const newEdges = this.connectGrowthNodes(rootNode, targetEntity, direction, layout);
@@ -430,16 +449,18 @@ export class KeyboardOnlyTreeEngine {
         if (editEdgeFirst && newEdges.length > 0) {
           this.project.controllerUtils.editEdgeText(newEdges[0]);
         }
-        return;
+        return "";
       }
     }
 
     // 先找到自己所有的第一层后继节点
-    const childSet = this.project.graphMethods.getOneStepSuccessorSet(rootNode);
+    const childSet = placement ? [] : this.project.graphMethods.getOneStepSuccessorSet(rootNode);
 
     // 寻找创建位置
     let createLocation: Vector;
-    if (childSet.length === 0) {
+    if (placement) {
+      createLocation = rootNode.collisionBox.getRectangle().location;
+    } else if (childSet.length === 0) {
       // 没有子节点时，在相应方向的正方向创建
       const rect = rootNode.collisionBox.getRectangle();
       switch (direction) {
@@ -517,7 +538,21 @@ export class KeyboardOnlyTreeEngine {
 
     // 设置新节点的字体大小
     newNode.setFontScaleLevel(newFontScaleLevel);
-    if (layout) this.positionGraphChild(rootNode, newNode, direction, layout);
+    if (placement) {
+      const vertical = direction === "up" || direction === "down";
+      const gap = this.getGrowthLineEnd(rootNode, direction).distance(this.getGrowthLineStart(rootNode, direction));
+      newNode.moveTo(
+        this.project.nodeAdder.findDirectionalNodeLocation(
+          rootNode,
+          placement.direction,
+          newNode.rectangle.size,
+          Math.max(48, gap) + (vertical ? 24 : 0),
+          placement.connections,
+        ),
+      );
+    } else if (layout) {
+      this.positionGraphChild(rootNode, newNode, direction, layout);
+    }
     this.project.stageManager.add(newNode);
 
     // 如果是在框里，则把新生长的节点也纳入到框里
@@ -534,7 +569,8 @@ export class KeyboardOnlyTreeEngine {
 
     // 重新排列树形节点
     const rootNodeParents = this.project.graphMethods.getRoots(rootNode, true);
-    if (this.layoutAfterGrowth(rootNodeParents, layout)) {
+    // 指定方向创建已经避开障碍，整树重排会覆盖新位置。
+    if (placement ? placement.selectCurrent : this.layoutAfterGrowth(rootNodeParents, layout)) {
       if (rootNodeParents[0]) rootNodeParents[0].isSelected = false;
       newNode.isSelected = true;
       rootNode.isSelected = false;
@@ -544,17 +580,19 @@ export class KeyboardOnlyTreeEngine {
     // 特效
     this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(rootNode, newNode));
     SoundService.play.treeGenerateDeepSoundFile();
-    setTimeout(
-      () => {
-        // 防止把反引号给输入进去
-        if (editEdgeFirst && newEdges.length > 0) {
-          this.editEdgeTextAndThenNode(newEdges[0], newNode, selectAll);
-        } else {
-          this.project.controllerUtils.editTextNode(newNode, selectAll);
-        }
-      },
-      (1000 / 60) * 6,
-    );
+    if (!placement) {
+      setTimeout(
+        () => {
+          // 防止把反引号给输入进去
+          if (editEdgeFirst && newEdges.length > 0) {
+            this.editEdgeTextAndThenNode(newEdges[0], newNode, selectAll);
+          } else {
+            this.project.controllerUtils.editTextNode(newNode, selectAll);
+          }
+        },
+        (1000 / 60) * 6,
+      );
+    }
     // 根据设置决定镜头行为
     switch (Settings.treeGenerateCameraBehavior) {
       case "none":
@@ -577,6 +615,7 @@ export class KeyboardOnlyTreeEngine {
         }
         break;
     }
+    return newNode.uuid;
   }
 
   /**

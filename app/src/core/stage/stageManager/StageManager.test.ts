@@ -16,7 +16,7 @@ vi.mock("@/core/render/canvas2d/renderer", () => ({
 vi.mock("@/core/service/Settings", () => ({ Settings: { watch: vi.fn(), historySize: 100 } }));
 vi.mock("@/core/service/Telemetry", () => ({ Telemetry: {} }));
 vi.mock("@/core/service/feedbackService/SoundService", () => ({
-  SoundService: { play: { associationAdjustSoundFile: vi.fn() } },
+  SoundService: { play: { associationAdjustSoundFile: vi.fn(), treeGenerateDeepSoundFile: vi.fn() } },
 }));
 vi.mock("@/core/stage/stageObject/entity/ReferenceBlockNode", () => ({ ReferenceBlockNode: class {} }));
 vi.mock("@/utils/font", () => ({
@@ -51,6 +51,10 @@ import { ConnectNodeSmartTools } from "@/core/service/dataManageService/connectN
 import { ArcEdge } from "@/core/stage/stageObject/association/ArcEdge";
 import { Settings } from "@/core/service/Settings";
 import { SectionCollisionSolver } from "./concreteMethods/SectionCollisionSolver";
+import { AutoLayoutFastTree } from "@/core/service/controlService/autoLayoutEngine/autoLayoutFastTreeMode";
+import { AutoLayout } from "@/core/service/controlService/autoLayoutEngine/mainTick";
+import { KeyboardOnlyTreeEngine } from "@/core/service/controlService/keyboardOnlyEngine/keyboardOnlyTreeEngine";
+import { AutoAlign } from "./concreteMethods/StageAutoAlignManager";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -217,9 +221,9 @@ it.each(["horizontal", "vertical"] as const)("arranges nodes on the %s axis arou
 
 it.each([
   [Direction.Left, "right"],
-  [Direction.Up, "bottom"],
+  [Direction.Up, "bottomCenter"],
   [Direction.Right, undefined],
-  [Direction.Down, undefined],
+  [Direction.Down, "topCenter"],
 ] as const)(
   "places a newly named node clear of its source and keeps the gap while editing in direction %s",
   async (direction, resizeAnchor) => {
@@ -227,7 +231,15 @@ it.each([
     source.isSelected = true;
     const add = vi.fn();
     const project = {
-      stageManager: { getSelectedEntities: () => [source], getTextNodes: () => [source], add },
+      stageManager: {
+        getSelectedEntities: () => [source],
+        getEntities: () => [source],
+        getTextNodes: () => [source],
+        getTextNodeByUUID: () => add.mock.calls[0][0],
+        getAssociations: () => [],
+        add,
+      },
+      nodeConnector: { connectConnectableEntity: vi.fn() },
       sectionInOutManager: { goInSections: vi.fn() },
       stageUtils: { replaceAutoNameTemplate: () => "A deliberately wide label" },
       syncAssociationManager: { syncFrom: vi.fn() },
@@ -249,13 +261,171 @@ it.each([
     };
     expect(node.uuid).toBe(uuid);
     expect(node.rectangle.width).toBeGreaterThan(source.rectangle.width);
-    expect(gap()).toBe(48);
+    expect(gap()).toBe(64);
+    expect(project.nodeConnector.connectConnectableEntity).not.toHaveBeenCalled();
     expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
 
     node.rename("An even wider title than the original one\nwith a second line", resizeAnchor);
-    expect(gap()).toBe(48);
+    expect(gap()).toBe(64);
+    if (direction === Direction.Up || direction === Direction.Down) {
+      expect(node.rectangle.center.x).toBeCloseTo(source.rectangle.center.x);
+    }
   },
 );
+
+it.each([
+  [Direction.Up, new Vector(0, -85), new Vector(0, -185), new Vector(0.5, 0.01), new Vector(0.5, 0.99)],
+  [Direction.Down, new Vector(0, 125), new Vector(0, 225), new Vector(0.5, 0.99), new Vector(0.5, 0.01)],
+  [Direction.Left, new Vector(-225, 0), new Vector(-350, 0), new Vector(0.01, 0.5), new Vector(0.99, 0.5)],
+  [Direction.Right, new Vector(225, 0), new Vector(350, 0), new Vector(0.99, 0.5), new Vector(0.01, 0.5)],
+] as const)(
+  "finds space past two obstacles and connects on side %s",
+  async (direction, first, second, sourceRate, targetRate) => {
+    const project = createDirectionalGrowthProject();
+    const source = new TextNode(project, { text: "source" });
+    const incoming = new TextNode(project, { text: "parent" });
+    const horizontal = direction === Direction.Left || direction === Direction.Right;
+    incoming.moveTo(horizontal ? new Vector(0, 450) : new Vector(450, 0));
+    const obstacles = [first, second].map((position) => {
+      const node = new TextNode(project, { text: "occupied" });
+      node.moveTo(position);
+      return node;
+    });
+    project.stage.push(source, incoming, obstacles[1], obstacles[0], lineEdge([incoming, source]));
+    project.stageManager.updateReferences();
+    source.isSelected = true;
+    const recordStep = vi.fn();
+    project.historyManager = { recordStep } as unknown as HistoryManager;
+
+    const uuid = await project.nodeAdder.addTextNodeFromCurrentSelectedNode(direction, true);
+    const created = project.stageManager.getTextNodeByUUID(uuid)!;
+    const [edge] = project.graphMethods.getEdgesBetween(source, created);
+    expect(edge.sourceRectangleRate).toEqual(sourceRate);
+    expect(edge.targetRectangleRate).toEqual(targetRate);
+    expect(project.stageManager.getSelectedEntities()).toEqual([created]);
+
+    const backward = direction === Direction.Left || direction === Direction.Up;
+    const axis = horizontal ? "x" : "y";
+    const last = obstacles[1].rectangle;
+    const location = created.rectangle.location;
+    expect(horizontal ? location.y : created.rectangle.center.x).toBeCloseTo(
+      horizontal ? source.rectangle.location.y : source.rectangle.center.x,
+    );
+    expect(location[axis]).toBe(
+      backward ? last.location[axis] - created.rectangle.size[axis] - 16 : last.location[axis] + last.size[axis] + 16,
+    );
+    expect(recordStep).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([
+  [Direction.Right, 150],
+  [Direction.Down, 74],
+  [Direction.Up, 74],
+] as const)("uses the tree template and spacing for a connected node on side %s", async (direction, gap) => {
+  const project = createDirectionalGrowthProject();
+  project.historyManager = { recordStep: vi.fn() } as unknown as HistoryManager;
+  project.syncAssociationManager.syncFrom = vi.fn();
+  const name = vi.spyOn(project.stageUtils, "replaceAutoNameTemplate").mockReturnValue("Child");
+  const source = new TextNode(project, { text: "source" });
+  const parent = new TextNode(project, { text: "parent" });
+  parent.moveTo(new Vector(-400, -400));
+  const edge = lineEdge([parent, source]);
+  edge.graphLayout = "mindMap";
+  project.stage.push(source, parent, edge);
+  source.isSelected = true;
+
+  const uuid = await project.nodeAdder.addTextNodeFromCurrentSelectedNode(direction);
+  const created = project.stageManager.getTextNodeByUUID(uuid)!;
+  expect(name).toHaveBeenCalledWith(Settings.autoNamerTreeNodeTemplate, source);
+  expect(created.text).toBe("Child");
+  expect(project.graphMethods.getEdgesBetween(source, created)[0].graphLayout).toBe("mindMap");
+  if (direction === Direction.Right) {
+    expect(created.rectangle.left - source.rectangle.right).toBe(gap);
+  } else {
+    created.rename("A much wider child label\non two lines", direction === Direction.Up ? "bottomCenter" : "topCenter");
+    expect(created.rectangle.center.x).toBeCloseTo(source.rectangle.center.x);
+    const distance =
+      direction === Direction.Up
+        ? source.rectangle.top - created.rectangle.bottom
+        : created.rectangle.top - source.rectangle.bottom;
+    expect(distance).toBe(gap);
+  }
+});
+
+function createDirectionalGrowthProject() {
+  const project = createProjectWithHistory();
+  Object.assign(project, {
+    nodeAdder: new NodeAdder(project),
+    keyboardOnlyTreeEngine: new KeyboardOnlyTreeEngine(project),
+    autoLayout: new AutoLayout(project),
+    camera: { clearMoveCommander: vi.fn() },
+    edgeRenderer: { getConnectedEffects: () => [] },
+  });
+  return project;
+}
+
+it.each([Direction.Left, Direction.Down])(
+  "places a connected branch beside existing branches on side %s",
+  async (direction) => {
+    const project = createDirectionalGrowthProject();
+    project.historyManager = { recordStep: vi.fn() } as unknown as HistoryManager;
+    const left = direction === Direction.Left;
+    const source = new TextNode(project, { text: "selected" });
+    const branch = new TextNode(project, { text: "existing" });
+    const other = new TextNode(project, { text: "other" });
+    branch.moveTo(left ? new Vector(-300, 0) : new Vector(0, 250));
+    other.moveTo(left ? new Vector(300, 360) : new Vector(420, -300));
+    const incoming = lineEdge([branch, source]);
+    incoming.sourceRectangleRate = left ? new Vector(0.99, 0.5) : new Vector(0.5, 0.01);
+    incoming.targetRectangleRate = left ? new Vector(0.01, 0.5) : new Vector(0.5, 0.99);
+    project.stage.push(source, branch, other, incoming, lineEdge([source, other]));
+    source.isSelected = true;
+
+    const uuid = await project.nodeAdder.addTextNodeFromCurrentSelectedNode(direction, true);
+    const created = project.stageManager.getTextNodeByUUID(uuid)!;
+    const [edge] = project.graphMethods.getEdgesBetween(source, created);
+    if (left) {
+      expect(created.rectangle.right).toBeLessThan(source.rectangle.left);
+      expect(created.rectangle.top).toBe(branch.rectangle.bottom + 32);
+      expect(edge.isRightToLeft()).toBe(true);
+    } else {
+      expect(created.rectangle.top).toBeGreaterThan(source.rectangle.bottom);
+      expect(created.rectangle.left).toBe(branch.rectangle.right + 32);
+      expect(edge.isTopToBottom()).toBe(true);
+    }
+    expect(created.rectangle.isCollideWith(branch.rectangle)).toBe(false);
+    expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+  },
+);
+
+it("fills the square grid by rows by default and transposes it for vertical layout", () => {
+  const nodes = ["a", "b", "c", "d", "e"].map((id) => textNode(id));
+  const moveEntityToUtils = vi.fn<(node: Entity, location: Vector) => void>();
+  const project = { entityMoveManager: { moveEntityToUtils } } as unknown as Project;
+  const layout = new LayoutManager(project);
+  const step = 150 * 1.12 ** 6;
+  const at = (x: number, y: number) => ({ x: expect.closeTo(x * step, 8), y: expect.closeTo(y * step, 8) });
+
+  layout.layoutToSquare(nodes);
+  expect(moveEntityToUtils.mock.calls).toEqual([
+    [nodes[0], at(-1, -0.5)],
+    [nodes[1], at(0, -0.5)],
+    [nodes[2], at(1, -0.5)],
+    [nodes[3], at(-1, 0.5)],
+    [nodes[4], at(0, 0.5)],
+  ]);
+
+  moveEntityToUtils.mockClear();
+  layout.layoutToSquare(nodes, "vertical");
+  expect(moveEntityToUtils.mock.calls).toEqual([
+    [nodes[0], at(-0.5, -1)],
+    [nodes[1], at(-0.5, 0)],
+    [nodes[2], at(-0.5, 1)],
+    [nodes[3], at(0.5, -1)],
+    [nodes[4], at(0.5, 0)],
+  ]);
+});
 
 it("adjusts selected-node spacing around the selection center and stops at the minimum gap", () => {
   const left = textNode("left");
@@ -356,7 +526,7 @@ describe("moving connected nodes", () => {
       project.stageManager.changeEdgesConnectLocation([edge], Direction.Left, false, false);
       edge.graphLayout = "mindMap";
     }
-    return { a, b, c, ab, bc, mover: new EntityMoveManager(project) };
+    return { project, a, b, c, ab, bc, mover: new EntityMoveManager(project) };
   }
 
   it("flips the last edge of a chain when only its target moves across its source", () => {
@@ -389,6 +559,45 @@ describe("moving connected nodes", () => {
       expect(bc.bodyLine.end).toEqual(previous.end.add(delta));
     },
   );
+
+  it("keeps a branch below its parent when growing another child after dragging it down", () => {
+    vi.useFakeTimers();
+    const autoLayout = Settings.autoLayoutWhenTreeGenerate;
+    Settings.autoLayoutWhenTreeGenerate = true;
+    try {
+      const { project, b, c, ab, bc, mover } = chain();
+      ab.graphLayout = bc.graphLayout = undefined;
+      Object.assign(project, {
+        entityMoveManager: mover,
+        autoLayout: new AutoLayout(project),
+        autoLayoutFastTree: new AutoLayoutFastTree(project),
+        autoAlign: new AutoAlign(project),
+        camera: { clearMoveCommander: vi.fn() },
+        historyManager: { recordStep: vi.fn() },
+        edgeRenderer: { getConnectedEffects: () => [] },
+        controllerUtils: { editTextNode: vi.fn() },
+      });
+      c.isSelected = true;
+      mover.moveSelectedEntities(new Vector(b.rectangle.center.x - c.rectangle.center.x, 280));
+      expect(bc.bodyLine.start).toEqual(b.rectangle.bottomCenter);
+
+      const engine = new KeyboardOnlyTreeEngine(project);
+      engine.generateChildNode("child");
+
+      const grown = project.stageManager.getTextNodes().at(-1)!;
+      expect(grown).not.toBe(c);
+      expect(c.rectangle.top).toBeGreaterThan(b.rectangle.bottom);
+      expect(c.rectangle.center.x).toBeCloseTo(b.rectangle.center.x);
+      expect(grown.rectangle.top).toBeGreaterThan(c.rectangle.bottom);
+      expect(grown.rectangle.center.x).toBeCloseTo(c.rectangle.center.x);
+      expect(bc.sourceRectangleRate).toEqual(new Vector(0.99, 0.5));
+      expect(project.graphMethods.getEdgesBetween(c, grown)[0].isTopToBottom()).toBe(true);
+    } finally {
+      Settings.autoLayoutWhenTreeGenerate = autoLayout;
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("drag collision timing", () => {

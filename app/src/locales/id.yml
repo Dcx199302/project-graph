@@ -42,7 +42,8 @@ canvasToolbar:
     alignVerticalSpaceBetween: Jarak vertikal
     alignLeftToRightNoSpace: Rapatkan baris
     alignTopToBottomNoSpace: Rapatkan kolom
-    layoutToSquare: Kisi persegi
+    layoutToSquare: Kisi horizontal
+    layoutToSquareVertical: Kisi vertikal
     layoutToTightSquare: Kisi rapat
     layoutToTightSquareDeep: Kisi rekursif
     dagGraphAdjust: Tata letak DAG
@@ -2121,9 +2122,9 @@ keyBinds:
     description: |
       Isi panel AI dengan konten node teks yang dipilih dan prompt bawaan untuk meringkas inti konten.
   mindMapLayout:
-    title: Peta pikiran
-  fishboneLayout:
-    title: Diagram tulang ikan
+    title: Diagram pohon
+  rectangleLayout:
+    title: Tata letak persegi panjang
   createTextNodeFromCameraLocation:
     title: Buat Node Teks di Posisi Pusat Tampilan
     description: |
@@ -2178,6 +2179,9 @@ keyBinds:
   selectAdditionalRight:
     title: Tambah Pilih Node Kanan
     description: Setelah ditekan, tambah pilih node kanan
+  jumpToSelectedEntities:
+    title: Lompat ke Lokasi
+    description: Pindahkan entitas yang dipilih ke titik di kanvas. Klik untuk menempatkan atau tekan Esc untuk membatalkan.
   moveUpSelectedEntities:
     title: Gerakkan Semua Entitas yang Dipilih ke Atas
     description: |
@@ -2416,7 +2420,9 @@ keyBinds:
     title: Perkecil Jarak Antarnode
     description: Dekatkan node terpilih dengan tetap menjaga jarak minimum.
   layoutToSquare:
-    title: Susunan Persegi Longgar
+    title: Susun dalam Kisi Horizontal
+  layoutToSquareVertical:
+    title: Susun dalam Kisi Vertikal
   layoutToTightSquare:
     title: Tumpuk Rapat
   layoutToTightSquareDeep:

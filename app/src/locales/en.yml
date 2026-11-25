@@ -53,7 +53,8 @@ canvasToolbar:
     alignVerticalSpaceBetween: Distribute vertically
     alignLeftToRightNoSpace: Pack row
     alignTopToBottomNoSpace: Pack column
-    layoutToSquare: Square grid
+    layoutToSquare: Horizontal grid
+    layoutToSquareVertical: Vertical grid
     layoutToTightSquare: Compact grid
     layoutToTightSquareDeep: Recursive grid
     dagGraphAdjust: DAG layout
@@ -1759,9 +1760,9 @@ keyBinds:
     description: |
       Fill the AI panel with selected text nodes and a preset prompt to summarize the core content.
   mindMapLayout:
-    title: Mind map
-  fishboneLayout:
-    title: Fishbone
+    title: Tree diagram
+  rectangleLayout:
+    title: Rectangular layout
   createTextNodeFromCameraLocation:
     title: Create Text Node at Camera Center
     description: |
@@ -1783,6 +1784,9 @@ keyBinds:
     title: Create Text Node to the Right of Selected Node
     description: |
       When pressed, a text node will be created to the right of the currently selected node.
+  jumpToSelectedEntities:
+    title: Jump To
+    description: Move the selected entities to a point on the canvas. Click to place them or press Esc to cancel.
   moveUpSelectedEntities:
     title: Move Selected Entities Up
     description: |
@@ -1955,7 +1959,9 @@ keyBinds:
     title: Decrease Node Spacing
     description: Bring selected nodes closer while preserving a minimum gap.
   layoutToSquare:
-    title: Arrange in a Square
+    title: Arrange in a Horizontal Grid
+  layoutToSquareVertical:
+    title: Arrange in a Vertical Grid
   layoutToTightSquare:
     title: Arrange in a Compact Square
   layoutToTightSquareDeep:

@@ -215,6 +215,22 @@ describe("unified canvas input", () => {
     input.dispose();
   });
 
+  it("reports a press immediately and excludes a consumed release from double clicks", () => {
+    const { input, pointer, handlers } = setup();
+    handlers.up.mockReturnValueOnce(true);
+    pointer("pointerdown");
+    expect(handlers.down).toHaveBeenCalledOnce();
+    pointer("pointermove", { clientX: 22 });
+    expect(handlers.move).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ clientX: 6, clientY: 10 }));
+    pointer("pointerup", { clientX: 22 });
+    expect(handlers.up).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ clientX: 6, clientY: 10 }));
+
+    pointer("pointerdown");
+    pointer("pointerup");
+    expect(handlers.doubleClick).not.toHaveBeenCalled();
+    input.dispose();
+  });
+
   it("keeps a deferred press separate from clicks when release is far away or the press is cancelled", () => {
     const { input, pointer, handlers } = setup();
     const click = vi.fn();

@@ -95,7 +95,7 @@ export class ControllerUtils {
       } else {
         ele.style.left = `${currentRectClient.left.toFixed(2)}px`;
       }
-      if (resizeAnchor === "bottom") {
+      if (resizeAnchor === "bottomCenter") {
         ele.style.bottom = `${(window.innerHeight - currentRectClient.bottom).toFixed(2)}px`;
       } else {
         ele.style.top = `${currentRectClient.top.toFixed(2)}px`;
@@ -180,8 +180,9 @@ export class ControllerUtils {
           wordBreak: "break-all",
           left: resizeAnchor === "right" ? undefined : `${rectClient.left.toFixed(2)}px`,
           right: resizeAnchor === "right" ? `${(window.innerWidth - rectClient.right).toFixed(2)}px` : undefined,
-          top: resizeAnchor === "bottom" ? undefined : `${rectClient.top.toFixed(2)}px`,
-          bottom: resizeAnchor === "bottom" ? `${(window.innerHeight - rectClient.bottom).toFixed(2)}px` : undefined,
+          top: resizeAnchor === "bottomCenter" ? undefined : `${rectClient.top.toFixed(2)}px`,
+          bottom:
+            resizeAnchor === "bottomCenter" ? `${(window.innerHeight - rectClient.bottom).toFixed(2)}px` : undefined,
           // ====
           // auto 模式：初始给节点宽度+8作为起始值，adjustSize 会用镜像 div 立即修正
           // manual 模式：宽度固定为节点当前宽度，不扩展
@@ -340,15 +341,19 @@ export class ControllerUtils {
   }
 
   addTextNodeFromCurrentSelectedNode(direction: Direction, selectCurrent = false) {
-    const resizeAnchor = direction === Direction.Left ? "right" : direction === Direction.Up ? "bottom" : undefined;
+    const resizeAnchors: Partial<Record<Direction, TextNodeResizeAnchor>> = {
+      [Direction.Left]: "right",
+      [Direction.Up]: "bottomCenter",
+      [Direction.Down]: "topCenter",
+    };
     this.project.nodeAdder.addTextNodeFromCurrentSelectedNode(direction, selectCurrent).then((uuid) => {
       setTimeout(() => {
-        this.textNodeInEditModeByUUID(uuid, resizeAnchor);
+        this.textNodeInEditModeByUUID(uuid, resizeAnchors[direction], false);
       });
     });
   }
 
-  textNodeInEditModeByUUID(uuid: string, resizeAnchor?: TextNodeResizeAnchor) {
+  textNodeInEditModeByUUID(uuid: string, resizeAnchor?: TextNodeResizeAnchor, autoFormatTree?: boolean) {
     const createNode = this.project.stageManager.getTextNodeByUUID(uuid);
     if (createNode === null) {
       // 说明 创建了立刻删掉了
@@ -356,7 +361,7 @@ export class ControllerUtils {
     }
     // 整特效
     this.project.effects.addEffect(EntityCreateFlashEffect.fromCreateEntity(createNode));
-    this.editTextNode(createNode, true, undefined, resizeAnchor);
+    this.editTextNode(createNode, true, autoFormatTree, resizeAnchor);
   }
 
   /**

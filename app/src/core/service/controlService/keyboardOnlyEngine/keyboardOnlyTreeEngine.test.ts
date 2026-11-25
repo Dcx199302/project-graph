@@ -3,6 +3,7 @@ import { Settings } from "@/core/service/Settings";
 import type { PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
+import { Direction } from "@/types/directions";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -80,6 +81,7 @@ function createGraph(graphLayout?: PreservedGraphLayout) {
     targetRectangleRate: new Vector(0.01, 0.5),
     isRightToLeft: () => false,
     isLeftToRight: () => true,
+    getTreeDirection: () => Direction.Right,
   });
   const edges = [edge(root, jsx, graphLayout), edge(jsx, component, graphLayout), edge(jsx, taxonomy, graphLayout)];
   const connect = vi.fn((from: TextNode, to: TextNode) => edges.push(edge(from, to)));

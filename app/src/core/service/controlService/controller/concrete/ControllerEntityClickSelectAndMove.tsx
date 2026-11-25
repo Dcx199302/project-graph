@@ -108,11 +108,6 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
       }
     }
 
-    // 防止跳跃式移动的时候改变选中内容
-    if (this.project.controller.pressingKeySet.has("alt")) {
-      return;
-    }
-
     // 单击选中
     if (clickedStageObject !== null) {
       if (directDrag && clickedStageObject instanceof Entity) this.beginDrag(event);
@@ -174,11 +169,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
       this.finishDrag(false);
       return;
     }
-    if (
-      this.project.controller.rectangleSelect.isUsing ||
-      this.project.controller.cutting.isUsing ||
-      (!this.dragTarget && this.project.controller.pressingKeySet.has("alt"))
-    ) {
+    if (this.project.controller.rectangleSelect.isUsing || this.project.controller.cutting.isUsing) {
       return;
     }
     const viewLocation = new Vector(event.clientX, event.clientY);

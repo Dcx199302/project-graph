@@ -8,6 +8,7 @@ import { ViewOutlineFlashEffect } from "@/core/service/feedbackService/effectEng
 import { Settings } from "@/core/service/Settings";
 import { Themes } from "@/core/service/Themes";
 import { PenStrokeMethods } from "@/core/stage/stageManager/basicMethods/PenStrokeMethods";
+import { looseLayoutScale } from "@/core/stage/stageManager/concreteMethods/LayoutManager";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { LineEdge } from "@/core/stage/stageObject/association/LineEdge";
@@ -147,7 +148,6 @@ import {
   FileText,
   FileUp,
   Fingerprint,
-  Fish,
   Flag,
   FlaskConical,
   Focus,
@@ -164,6 +164,8 @@ import {
   Globe,
   GraduationCap,
   Grip,
+  GripHorizontal,
+  GripVertical,
   Hand,
   History,
   Images,
@@ -242,6 +244,7 @@ import {
   UserPlus,
   Users,
   UsersRound,
+  VectorSquare,
   View,
   Wand2,
   WandSparkles,
@@ -343,7 +346,7 @@ function graphLayoutToolbarAction(layout: GraphLayout): Pick<KeyBindItem, "when"
         toast.error(i18next.t("canvasToolbar:mindMapLockedSelection"));
         return;
       }
-      project.autoLayout.autoLayoutGraph(entities, layout);
+      project.autoLayout.autoLayoutGraph(entities, layout, looseLayoutScale);
     },
   };
 }
@@ -981,7 +984,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "createTextNodeFromSelectedTop",
-    defaultKey: "A-arrowup",
+    defaultKey: "C-arrowup",
     icon: ArrowUp,
     ...keyboardOnlyToolbarAction(
       whenKeyboardOnlyOpenWithSelectedConnectableEntities,
@@ -991,7 +994,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "createTextNodeFromSelectedRight",
-    defaultKey: "A-arrowright",
+    defaultKey: "C-arrowright",
     icon: ArrowRight,
     ...keyboardOnlyToolbarAction(
       whenKeyboardOnlyOpenWithSelectedConnectableEntities,
@@ -1001,7 +1004,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "createTextNodeFromSelectedLeft",
-    defaultKey: "A-arrowleft",
+    defaultKey: "C-arrowleft",
     icon: ArrowLeft,
     ...keyboardOnlyToolbarAction(
       whenKeyboardOnlyOpenWithSelectedConnectableEntities,
@@ -1011,7 +1014,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "createTextNodeFromSelectedDown",
-    defaultKey: "A-arrowdown",
+    defaultKey: "C-arrowdown",
     icon: ArrowDown,
     ...keyboardOnlyToolbarAction(
       whenKeyboardOnlyOpenWithSelectedConnectableEntities,
@@ -1101,8 +1104,16 @@ export const allKeyBinds: KeyBindItem[] = [
 
   /*------- 移动选中实体 -------*/
   {
+    id: "jumpToSelectedEntities",
+    defaultKey: "j",
+    icon: MousePointer2,
+    when: (project) => project?.controller.layerMoving.canJump() ?? false,
+    isToggle: true,
+    onPress: (project) => project!.controller.layerMoving.toggleJump(),
+  },
+  {
     id: "moveUpSelectedEntities",
-    defaultKey: "C-arrowup",
+    defaultKey: "A-arrowup",
     icon: ArrowUp,
     when: whenKeyboardOnlyOpenWithSelectedEntities,
     isContinuous: true,
@@ -1116,7 +1127,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "moveDownSelectedEntities",
-    defaultKey: "C-arrowdown",
+    defaultKey: "A-arrowdown",
     icon: ArrowDown,
     when: whenKeyboardOnlyOpenWithSelectedEntities,
     isContinuous: true,
@@ -1130,7 +1141,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "moveLeftSelectedEntities",
-    defaultKey: "C-arrowleft",
+    defaultKey: "A-arrowleft",
     icon: ArrowLeft,
     when: whenKeyboardOnlyOpenWithSelectedEntities,
     isContinuous: true,
@@ -1144,7 +1155,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "moveRightSelectedEntities",
-    defaultKey: "C-arrowright",
+    defaultKey: "A-arrowright",
     icon: ArrowRight,
     when: whenKeyboardOnlyOpenWithSelectedEntities,
     isContinuous: true,
@@ -2150,10 +2161,11 @@ export const allKeyBinds: KeyBindItem[] = [
     ...graphLayoutToolbarAction("mindMap"),
   },
   {
-    id: "fishboneLayout",
+    id: "rectangleLayout",
     defaultKey: "",
-    icon: Fish,
-    ...graphLayoutToolbarAction("fishbone"),
+    icon: VectorSquare,
+    when: (project) => project?.layoutManager.canArrangeSelectedLine() ?? false,
+    onPress: (project) => project?.layoutManager.arrangeSelectedRectangle(),
   },
   {
     id: "setNodeTreeDirectionUp",
@@ -2656,9 +2668,17 @@ export const allKeyBinds: KeyBindItem[] = [
   {
     id: "layoutToSquare",
     defaultKey: "5 5",
-    icon: Grip,
+    icon: GripHorizontal,
     when: whenHasMultipleSelectedEntities,
     onPress: (project) => project!.layoutManager.layoutToSquare(project!.stageManager.getSelectedEntities()),
+  },
+  {
+    id: "layoutToSquareVertical",
+    defaultKey: "",
+    icon: GripVertical,
+    when: whenHasMultipleSelectedEntities,
+    onPress: (project) =>
+      project!.layoutManager.layoutToSquare(project!.stageManager.getSelectedEntities(), "vertical"),
   },
   {
     id: "layoutToTightSquare",

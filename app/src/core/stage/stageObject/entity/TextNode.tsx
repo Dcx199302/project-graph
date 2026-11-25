@@ -12,7 +12,7 @@ import { id, passExtraAtArg1, passObject, serializable } from "@graphif/serializ
 import { Rectangle } from "@graphif/shapes";
 import type { Value } from "platejs";
 
-export type TextNodeResizeAnchor = "right" | "bottom";
+export type TextNodeResizeAnchor = "right" | "topCenter" | "bottomCenter";
 
 /**
  *
@@ -323,10 +323,10 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
     }
     if (beforeResize) {
       const resized = this.rectangle;
-      const offset =
-        resizeAnchor === "right"
-          ? new Vector(beforeResize.right - resized.right, 0)
-          : new Vector(0, beforeResize.bottom - resized.bottom);
+      const offset = new Vector(
+        resizeAnchor === "right" ? beforeResize.right - resized.right : beforeResize.center.x - resized.center.x,
+        resizeAnchor === "bottomCenter" ? beforeResize.bottom - resized.bottom : 0,
+      );
       if (!offset.isZero()) this.moveTo(resized.location.add(offset));
     }
     // 向孪生兄弟同步 text（_isSyncing 为 true 时说明自己正在被同步写入，跳过避免循环）

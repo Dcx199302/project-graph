@@ -42,7 +42,8 @@ canvasToolbar:
     alignVerticalSpaceBetween: 垂直等距
     alignLeftToRightNoSpace: 緊排成列
     alignTopToBottomNoSpace: 緊排成欄
-    layoutToSquare: 方陣
+    layoutToSquare: 橫向方陣
+    layoutToSquareVertical: 縱向方陣
     layoutToTightSquare: 緊密方陣
     layoutToTightSquareDeep: 遞迴方陣
     dagGraphAdjust: DAG 排版
@@ -2071,9 +2072,9 @@ keyBinds:
     description: |
       將選取的文字節點內容填入 AI 面板，並預置提示詞用於總結核心內容
   mindMapLayout:
-    title: 心智圖
-  fishboneLayout:
-    title: 魚骨圖
+    title: 樹圖
+  rectangleLayout:
+    title: 矩形排版
   createTextNodeFromCameraLocation:
     title: 在視野中心位置建立文字節點
     description: '按下後，在目前視野中心的位置建立一個文字節點
@@ -2124,6 +2125,9 @@ keyBinds:
   selectAdditionalRight:
     title: 附加選取右側節點
     description: 按下後，附加選取右側節點
+  jumpToSelectedEntities:
+    title: 跳轉到這裡
+    description: 將選取的物件移動到畫布上的指定位置。點擊確認落點，按 Esc 取消。
   moveUpSelectedEntities:
     title: 向上移動所有選取的實體
     description: 持續按住時，所有選取的實體會持續向上加速移動，放開後緩動停止
@@ -2382,7 +2386,9 @@ keyBinds:
     title: 縮小節點間距
     description: 把選取的節點往中心靠攏，保留最小間隔。
   layoutToSquare:
-    title: 松散方阵排列
+    title: 橫向方陣排列
+  layoutToSquareVertical:
+    title: 縱向方陣排列
   layoutToTightSquare:
     title: 緊密堆積
   layoutToTightSquareDeep:

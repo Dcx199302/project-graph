@@ -8,7 +8,7 @@ import { Direction } from "@/types/directions";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { toast } from "sonner";
-import { layoutFishbone } from "./directedLayouts";
+import { layoutFishbone, layoutVerticalMindMap, mindMapSpacing, type MindMapBranch } from "./directedLayouts";
 
 export type DAGLayoutResult = {
   movedCount: number;
@@ -303,7 +303,7 @@ export class AutoLayout {
     return this.autoLayoutGraph(entities, "mindMap");
   }
 
-  public autoLayoutGraph(entities: ConnectableEntity[], layout: GraphLayout): boolean {
+  public autoLayoutGraph(entities: ConnectableEntity[], layout: GraphLayout, spacingScale = 1): boolean {
     const selectedRoot = layout === "mindMap" && entities.length === 1 ? entities[0] : undefined;
     const byId = new Map(entities.map((entity) => [entity.uuid, entity]));
     let edges: Edge[];
@@ -352,8 +352,10 @@ export class AutoLayout {
       const fromNeighbors = neighbors.get(from)!;
       const toNeighbors = neighbors.get(to)!;
       if (from === to) continue;
-      const sourceNormal = Edge.getNormalVectorByRate(edge.sourceRectangleRate);
-      const targetNormal = Edge.getNormalVectorByRate(edge.targetRectangleRate);
+      // 键盘生长和拖拽连线也会保存边缘端点，只有手动固定后才约束布局方向。
+      const hasFixedPorts = !(edge instanceof LineEdge) || edge.fixedEndpoints === true;
+      const sourceNormal = hasFixedPorts ? Edge.getNormalVectorByRate(edge.sourceRectangleRate) : null;
+      const targetNormal = hasFixedPorts ? Edge.getNormalVectorByRate(edge.targetRectangleRate) : null;
       const fromDirection = sourceNormal ?? targetNormal?.multiply(-1);
       const toDirection = targetNormal ?? sourceNormal?.multiply(-1);
       fromNeighbors.set(
@@ -364,12 +366,15 @@ export class AutoLayout {
       outgoing.get(from)!.add(to);
       incoming.get(to)!.add(from);
     }
+    const fanParents = new Map<string, MindMapBranch>();
     const placements = this.layoutConnectedGroups(
       layout,
       neighbors,
       incoming,
       outgoing,
       rectangles,
+      fanParents,
+      spacingScale,
       selectedRoot?.uuid,
     );
     const moved = [...placements].filter(([id, rect]) => !rect.location.equals(rectangles.get(id)!.location));
@@ -388,7 +393,10 @@ export class AutoLayout {
         section.adjustLocationAndSize();
       }
     }
-    const portsChanged = layout === "fishbone" && this.alignFishbonePorts(edges, placements);
+    const portsChanged =
+      layout === "fishbone"
+        ? this.alignFishbonePorts(edges, placements)
+        : this.alignMindMapFanPorts(edges, placements, fanParents);
     const layoutChanged = this.setGraphLayout(edges, layout);
     if (moved.length || portsChanged || layoutChanged) this.project.historyManager.recordStep();
     return true;
@@ -447,12 +455,59 @@ export class AutoLayout {
     return changed;
   }
 
+  private alignMindMapFanPorts(
+    edges: Edge[],
+    placements: ReadonlyMap<string, Rectangle>,
+    fanParents: ReadonlyMap<string, MindMapBranch>,
+  ) {
+    if (fanParents.size === 0) return false;
+    let changed = false;
+    const canAdjust = (rate: Vector) =>
+      rate.equals(Vector.same(0.5)) ||
+      ((rate.x === 0.5 || rate.y === 0.5) && Edge.getNormalVectorByRate(rate) !== null);
+    for (const edge of edges) {
+      if (!(edge instanceof LineEdge) || edge.fixedEndpoints) continue;
+      const from = edge.source.uuid;
+      const to = edge.target.uuid;
+      const forward = fanParents.get(to)?.parentId === from;
+      const branch = fanParents.get(forward ? to : from);
+      if (branch?.parentId !== (forward ? from : to)) continue;
+      const parent = placements.get(branch.parentId)!;
+      const child = placements.get(forward ? to : from)!;
+      const down = parent.center.y < child.center.y;
+      const parentRate = new Vector(0.5, down ? 0.99 : 0.01);
+      const childRate =
+        branch.side === 0 ? new Vector(0.5, down ? 0.01 : 0.99) : new Vector(branch.side < 0 ? 0.99 : 0.01, 0.5);
+      const sourceRate = forward ? parentRate : childRate;
+      const targetRate = forward ? childRate : parentRate;
+      if (
+        edge.source.clipConnectionToBoundary &&
+        canAdjust(edge.sourceRectangleRate) &&
+        !edge.sourceRectangleRate.equals(sourceRate)
+      ) {
+        edge.sourceRectangleRate = sourceRate;
+        changed = true;
+      }
+      if (
+        edge.target.clipConnectionToBoundary &&
+        canAdjust(edge.targetRectangleRate) &&
+        !edge.targetRectangleRate.equals(targetRate)
+      ) {
+        edge.targetRectangleRate = targetRate;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   private layoutConnectedGroups(
     layout: GraphLayout,
     neighbors: MindMapNeighbors,
     incoming: Map<string, Set<string>>,
     outgoing: Map<string, Set<string>>,
     rectangles: Map<string, Rectangle>,
+    fanParents: Map<string, MindMapBranch>,
+    spacingScale: number,
     selectedRoot?: string,
   ): Map<string, Rectangle> {
     const unvisited = new Set(rectangles.keys());
@@ -474,31 +529,64 @@ export class AutoLayout {
 
     const placements = new Map<string, Rectangle>();
     const occupied: Rectangle[] = [];
+    let anchor: Vector | undefined;
     for (const { nodes } of components) {
       let group: Map<string, Rectangle>;
       if (layout === "fishbone") {
         group = layoutFishbone(new Map(nodes.map(({ id, rectangle }) => [id, rectangle])), incoming, outgoing);
       } else {
-        const root = selectedRoot ? nodes[0] : this.getMindMapRoot(nodes, neighbors, outgoing, incoming);
-        group = this.layoutMindMapComponent(root, neighbors, outgoing, rectangles);
+        const { root, growthDirection } = selectedRoot
+          ? { root: nodes[0] }
+          : this.getMindMapRootAndDirection(nodes, neighbors, outgoing, incoming);
+        if (spacingScale !== 1) anchor ??= root.rectangle.center;
+        group = this.layoutMindMapComponent(root, neighbors, outgoing, rectangles, fanParents, growthDirection);
       }
       const bounds = Rectangle.getBoundingRectangle([...group.values()]);
       const main = occupied[0];
-      const delta = main ? this.findMindMapGroupShift(bounds, main, occupied) : Vector.getZero();
+      const gap = layout === "mindMap" ? mindMapSpacing.groups : 64;
+      const delta = main ? this.findMindMapGroupShift(bounds, main, occupied, gap) : Vector.getZero();
       for (const [id, rectangle] of group) {
-        placements.set(id, new Rectangle(rectangle.location.add(delta), rectangle.size));
+        const location = rectangle.location.add(delta);
+        const center = rectangle.center.add(delta);
+        const extra = anchor && center.subtract(anchor).multiply(spacingScale - 1);
+        placements.set(id, new Rectangle(extra ? location.add(extra) : location, rectangle.size));
       }
       occupied.push(new Rectangle(bounds.location.add(delta), bounds.size));
     }
     return placements;
   }
 
-  private getMindMapRoot(
+  private getMindMapRootAndDirection(
     nodes: MindMapNode[],
     neighbors: MindMapNeighbors,
     outgoing: Map<string, Set<string>>,
     incoming: Map<string, Set<string>>,
-  ): MindMapNode {
+  ): { root: MindMapNode; growthDirection?: Direction } {
+    const roots = nodes.filter(({ id }) => incoming.get(id)!.size === 0);
+    const directedLinkCount = nodes.reduce((count, { id }) => count + outgoing.get(id)!.size, 0);
+    const treeRoot = roots.length === 1 && directedLinkCount === nodes.length - 1 ? roots[0] : undefined;
+    if (treeRoot && nodes.length > 1) {
+      const rootRect = treeRoot.rectangle;
+      const rootCenter = rootRect.center;
+      const bounds = Rectangle.getBoundingRectangle(
+        nodes.filter((node) => node !== treeRoot).map(({ rectangle }) => rectangle),
+      );
+      const center = bounds.center;
+      // 优先判断根节点在哪一侧，以免已有树的横向或纵向跨度掩盖拖动方向。
+      const growthDirection =
+        getLayoutDirection(
+          -offsetOutside(rootCenter.x, bounds.left, bounds.right),
+          -offsetOutside(rootCenter.y, bounds.top, bounds.bottom),
+        ) ??
+        getLayoutDirection(
+          offsetOutside(center.x, rootRect.left, rootRect.right),
+          offsetOutside(center.y, rootRect.top, rootRect.bottom),
+        );
+      if (growthDirection !== undefined || outgoing.get(treeRoot.id)!.size > 1) {
+        return { root: treeRoot, growthDirection };
+      }
+    }
+
     const hub = nodes.reduce((best, node) => {
       const degree = neighbors.get(node.id)!.size;
       const bestDegree = neighbors.get(best.id)!.size;
@@ -506,15 +594,10 @@ export class AutoLayout {
         ? node
         : best;
     });
-    const roots = nodes.filter(({ id }) => incoming.get(id)!.size === 0);
-    const directedLinkCount = nodes.reduce((count, { id }) => count + outgoing.get(id)!.size, 0);
-    const treeRoot = directedLinkCount === nodes.length - 1 && roots.length === 1 ? roots[0] : undefined;
-    // 有明确根节点的树延续原有布局，复杂图以联系最多的节点为中心。
-    return treeRoot && (outgoing.get(treeRoot.id)!.size > 1 || neighbors.get(hub.id)!.size < 3) ? treeRoot : hub;
+    return { root: treeRoot && neighbors.get(hub.id)!.size < 3 ? treeRoot : hub };
   }
 
-  private findMindMapGroupShift(bounds: Rectangle, main: Rectangle, occupied: Rectangle[]): Vector {
-    const gap = 64;
+  private findMindMapGroupShift(bounds: Rectangle, main: Rectangle, occupied: Rectangle[], gap: number): Vector {
     const center = bounds.center.subtract(main.center);
     const direction = getLayoutDirection(center.x, center.y) ?? Direction.Right;
     const vertical = direction === Direction.Up || direction === Direction.Down;
@@ -542,6 +625,8 @@ export class AutoLayout {
     neighbors: MindMapNeighbors,
     outgoing: Map<string, Set<string>>,
     rectangles: Map<string, Rectangle>,
+    fanParents: Map<string, MindMapBranch>,
+    growthDirection?: Direction,
   ): Map<string, Rectangle> {
     const rootRect = root.rectangle;
     const directions = [Direction.Left, Direction.Right, Direction.Up, Direction.Down];
@@ -554,6 +639,7 @@ export class AutoLayout {
       // 固定端口决定曲线的出入方向，优先将分支排到端口所在侧。
       const direction =
         portDirection ??
+        growthDirection ??
         getLayoutDirection(x, y) ??
         (outgoing.get(root.id)!.has(child) ? Direction.Right : Direction.Left);
       groups.get(direction)!.push(child);
@@ -570,14 +656,15 @@ export class AutoLayout {
         pending.push(child);
       }
     }
-    const branchGap = 32;
-    const depthGap = 120;
+    const branchGap = mindMapSpacing.branches;
     const placements = new Map([[root.id, rootRect]]);
     const horizontalBounds: Rectangle[] = [];
 
     for (const [direction, group] of groups) {
       if (group.length === 0) continue;
       const vertical = direction === Direction.Up || direction === Direction.Down;
+      const depthGap = vertical ? mindMapSpacing.verticalLevels : mindMapSpacing.horizontalLevels;
+      const isVerticalTree = vertical && direction === growthDirection;
       const sign = direction === Direction.Left || direction === Direction.Up ? -1 : 1;
       const depthSize = (rect: Rectangle) => (vertical ? rect.height : rect.width);
       const crossSize = (rect: Rectangle) => (vertical ? rect.width : rect.height);
@@ -600,50 +687,65 @@ export class AutoLayout {
         : sign > 0
           ? rootRect.right
           : rootRect.left;
-      let edge = rootEdge;
-      const levels = depthSizes.map((size) => {
-        const nearEdge = edge + sign * depthGap;
-        edge = nearEdge + sign * size;
-        return nearEdge;
-      });
-
-      const spans = new Map<string, number>();
-      const branchSpan = (branch: string[]) =>
-        branch.reduce((span, child) => span + spans.get(child)!, 0) + Math.max(0, branch.length - 1) * branchGap;
-      for (const { id } of [...ordered].reverse()) {
-        spans.set(id, Math.max(crossSize(rectangles.get(id)!), branchSpan(children.get(id)!)));
-      }
-
-      const centers = new Map<string, number>();
-      const placeSiblings = (siblings: string[], center: number) => {
-        let position = center - branchSpan(siblings) / 2;
-        for (const sibling of siblings) {
-          const span = spans.get(sibling)!;
-          centers.set(sibling, position + span / 2);
-          position += span + branchGap;
+      if (isVerticalTree && (group.length >= 5 || ordered.some(({ id }) => children.get(id)!.length >= 5))) {
+        layoutVerticalMindMap(
+          root.id,
+          group,
+          ordered.map(({ id }) => id),
+          children,
+          rectangles,
+          sign,
+          placements,
+          fanParents,
+        );
+      } else {
+        let edge = rootEdge;
+        const levels = depthSizes.map((size) => {
+          const nearEdge = edge + sign * depthGap;
+          edge = nearEdge + sign * size;
+          return nearEdge;
+        });
+        const spans = new Map<string, number>();
+        const branchSpan = (branch: string[]) =>
+          branch.reduce((span, child) => span + spans.get(child)!, 0) + Math.max(0, branch.length - 1) * branchGap;
+        for (const { id } of [...ordered].reverse()) {
+          spans.set(id, Math.max(crossSize(rectangles.get(id)!), branchSpan(children.get(id)!)));
         }
-      };
-      placeSiblings(group, crossCenter(rootRect));
-
-      for (const { id, depth } of ordered) {
-        const center = centers.get(id)!;
-        placeSiblings(children.get(id)!, center);
-        const rect = rectangles.get(id)!;
-        const along = levels[depth] - (sign < 0 ? depthSize(rect) : 0);
-        const across = center - crossSize(rect) / 2;
-        placements.set(id, new Rectangle(vertical ? new Vector(across, along) : new Vector(along, across), rect.size));
+        const centers = new Map<string, number>();
+        const placeSiblings = (siblings: string[], center: number) => {
+          let position = center - branchSpan(siblings) / 2;
+          for (const sibling of siblings) {
+            const span = spans.get(sibling)!;
+            centers.set(sibling, position + span / 2);
+            position += span + branchGap;
+          }
+        };
+        placeSiblings(group, crossCenter(rootRect));
+        for (const { id, depth } of ordered) {
+          const center = centers.get(id)!;
+          placeSiblings(children.get(id)!, center);
+          const rect = rectangles.get(id)!;
+          const along = levels[depth] - (sign < 0 ? depthSize(rect) : 0);
+          const across = center - crossSize(rect) / 2;
+          placements.set(
+            id,
+            new Rectangle(vertical ? new Vector(across, along) : new Vector(along, across), rect.size),
+          );
+        }
       }
 
       let shift = 0;
-      for (const id of group) {
-        if (neighbors.get(root.id)!.get(id) !== undefined) continue;
-        const center = placements.get(id)!.center;
-        const across = vertical
-          ? offsetOutside(center.x, rootRect.left, rootRect.right)
-          : offsetOutside(center.y, rootRect.top, rootRect.bottom);
-        const along = sign * ((vertical ? center.y : center.x) - rootEdge);
-        // 留在自动识别的方向内，避免再次布局时边缘节点被分到相邻方向。
-        shift = Math.max(shift, Math.abs(across) - along + 1);
+      if (!isVerticalTree) {
+        for (const id of group) {
+          if (neighbors.get(root.id)!.get(id) !== undefined) continue;
+          const center = placements.get(id)!.center;
+          const across = vertical
+            ? offsetOutside(center.x, rootRect.left, rootRect.right)
+            : offsetOutside(center.y, rootRect.top, rootRect.bottom);
+          const along = sign * ((vertical ? center.y : center.x) - rootEdge);
+          // 按节点位置分组时，避免再次布局把边缘节点分到相邻方向。
+          shift = Math.max(shift, Math.abs(across) - along + 1);
+        }
       }
 
       const groupRectangles = ordered.map(({ id }) => placements.get(id)!);

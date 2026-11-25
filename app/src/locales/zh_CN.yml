@@ -51,7 +51,8 @@ canvasToolbar:
     alignVerticalSpaceBetween: 垂直等距
     alignLeftToRightNoSpace: 紧排成行
     alignTopToBottomNoSpace: 紧排成列
-    layoutToSquare: 方阵
+    layoutToSquare: 横向方阵
+    layoutToSquareVertical: 纵向方阵
     layoutToTightSquare: 紧凑方阵
     layoutToTightSquareDeep: 递归方阵
     dagGraphAdjust: DAG 布局
@@ -1832,9 +1833,9 @@ keyBinds:
     description: |
       将选中的文本节点内容填入 AI 面板，并预置提示词用于总结核心内容
   mindMapLayout:
-    title: 思维导图
-  fishboneLayout:
-    title: 鱼骨图
+    title: 树图
+  rectangleLayout:
+    title: 矩形布局
   createTextNodeFromCameraLocation:
     title: 在视野中心位置创建文本节点
     description: |
@@ -1885,6 +1886,9 @@ keyBinds:
   selectAdditionalRight:
     title: 附加选中右侧节点
     description: 按下后，附加选中右侧节点
+  jumpToSelectedEntities:
+    title: 跳转到此处
+    description: 将选中的实体移动到画布上的指定位置。点击确认落点，按 Esc 取消。
   moveUpSelectedEntities:
     title: 向上移动所有选中的实体
     description: |
@@ -2162,7 +2166,9 @@ keyBinds:
     title: 缩小节点间距
     description: 以选区中心为基准收紧选中节点，保留最小间隔。
   layoutToSquare:
-    title: 松散方阵排列
+    title: 横向方阵排列
+  layoutToSquareVertical:
+    title: 纵向方阵排列
   layoutToTightSquare:
     title: 紧密堆积
   layoutToTightSquareDeep:

@@ -3,7 +3,7 @@ import { KeyBindsUI, type KeyBindIcon } from "@/core/service/controlService/shor
 import { allKeyBinds } from "@/core/service/controlService/shortcutKeysEngine/shortcutKeysRegister";
 import { ColorManager } from "@/core/service/feedbackService/ColorManager";
 import { Settings } from "@/core/service/Settings";
-import { isClassroomModeAtom } from "@/state";
+import { activeTabAtom, isClassroomModeAtom, store } from "@/state";
 import { cn } from "@/utils/cn";
 import { formatKeyBindSequenceToString } from "@/utils/keyDisplay";
 import { isMac } from "@/utils/platform";
@@ -19,7 +19,6 @@ import {
   Command,
   createLucideIcon,
   Ellipsis,
-  FishSymbol,
   Hand,
   LayoutGrid,
   MousePointer,
@@ -36,7 +35,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
@@ -52,6 +51,43 @@ const mouseModes = [
 
 const verticalSeparator = "|";
 const spacingActions: readonly string[] = ["increaseSelectedNodeSpacing", "decreaseSelectedNodeSpacing"];
+const alignRows = [
+  [
+    "alignTop",
+    "alignBottom",
+    "alignLeft",
+    "alignRight",
+    "alignCenterHorizontal",
+    "alignCenterVertical",
+    verticalSeparator,
+    "arrangeSelectedVertical",
+    "arrangeSelectedHorizontal",
+  ],
+] as const;
+const layoutRows = [
+  [
+    "layoutToSquare",
+    "layoutToSquareVertical",
+    "mindMapLayout",
+    "rectangleLayout",
+    verticalSeparator,
+    ...spacingActions,
+  ],
+] as const;
+
+const modifierMenus = {
+  Alt: { category: "align", modifier: "altKey", badge: isMac ? "⌥" : "Alt", rows: alignRows },
+  Control: { category: "layout", modifier: "ctrlKey", badge: isMac ? "⌃" : "Ctrl", rows: layoutRows },
+} as const;
+const modifierMenuList = Object.values(modifierMenus).map((menu) => ({
+  ...menu,
+  actions: menu.rows[0].filter((id) => id !== verticalSeparator),
+}));
+const actionShortcuts = new Map(
+  modifierMenuList.flatMap(({ badge, actions }) =>
+    actions.map((id, index) => [id, { badge, digit: String(index + 1) }] as const),
+  ),
+);
 
 const categories = [
   {
@@ -69,24 +105,12 @@ const categories = [
   {
     id: "align",
     Icon: AlignHorizontalJustifyCenter,
-    rows: [
-      [
-        "alignTop",
-        "alignBottom",
-        "alignLeft",
-        "alignRight",
-        "alignCenterHorizontal",
-        "alignCenterVertical",
-        verticalSeparator,
-        "arrangeSelectedVertical",
-        "arrangeSelectedHorizontal",
-      ],
-    ],
+    rows: alignRows,
   },
   {
     id: "layout",
     Icon: LayoutGrid,
-    rows: [["layoutToSquare", "mindMapLayout", "fishboneLayout", verticalSeparator, ...spacingActions]],
+    rows: layoutRows,
   },
   {
     id: "organize",
@@ -114,7 +138,20 @@ const categories = [
 
 type Category = (typeof categories)[number]["id"] | "more";
 const moreRows = [["undo", "redo", "deleteSelectedStageObjects"]] as const;
-const groupRows = [["packEntityToSection"]] as const;
+const directActionRows = [["jumpToSelectedEntities", "packEntityToSection"]] as const;
+const toolbarShortcutHints = {
+  actionIds: new Set<string>([
+    ...mouseModes.flatMap(({ keyBindId }) => (keyBindId ? [keyBindId] : [])),
+    ...categories.flatMap(({ rows }) => rows.flat()),
+    ...moreRows.flat(),
+    ...directActionRows.flat(),
+  ]),
+  numberedKeys: new Set(
+    modifierMenuList.flatMap(({ modifier, actions }) =>
+      actions.map((_, index) => `${modifier === "altKey" ? "A" : "C"}-${index + 1}`),
+    ),
+  ),
+};
 
 /*!
  * 这三个图标来自 lucide-static v1.78.0，当前 lucide-react 版本尚未提供。
@@ -133,12 +170,12 @@ const groupRows = [["packEntityToSection"]] as const;
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-const DiagramFlowHorizontal = createLucideIcon("DiagramFlowHorizontal", [
-  ["path", { d: "M8 12h.5a3.5 3.5 0 013.5 3.5 3.5 3.5 0 003.5 3.5h.5", key: "lower-branch" }],
-  ["path", { d: "M8.5 12A3.5 3.5 0 0012 8.5 3.5 3.5 0 0115.5 5h.5", key: "upper-branch" }],
-  ["rect", { x: "16", y: "16", width: "6", height: "6", rx: "1", key: "lower-node" }],
-  ["rect", { x: "16", y: "2", width: "6", height: "6", rx: "1", key: "upper-node" }],
-  ["rect", { x: "2", y: "9", width: "6", height: "6", rx: "1", key: "root-node" }],
+const DiagramFlowVertical = createLucideIcon("DiagramFlowVertical", [
+  ["path", { d: "M12 8.5a3.5 3.5 0 003.5 3.5 3.5 3.5 0 013.5 3.5v.5", key: "right-branch" }],
+  ["path", { d: "M12 8v.5A3.5 3.5 0 018.5 12 3.5 3.5 0 005 15.5v.5", key: "left-branch" }],
+  ["rect", { x: "16", y: "16", width: "6", height: "6", rx: "1", key: "right-node" }],
+  ["rect", { x: "2", y: "16", width: "6", height: "6", rx: "1", key: "left-node" }],
+  ["rect", { x: "9", y: "2", width: "6", height: "6", rx: "1", key: "root-node" }],
 ]);
 const LayoutArrowDown = createLucideIcon("LayoutArrowDown", [
   ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "upper-node" }],
@@ -157,8 +194,7 @@ const toolbarIcons: Record<string, KeyBindIcon> = {
   connectAllSelectedEntities: ArrowRightLeft,
   connectLeftToRight: ArrowRightToLine,
   connectTopToBottom: ArrowDownToLine,
-  mindMapLayout: DiagramFlowHorizontal,
-  fishboneLayout: FishSymbol,
+  mindMapLayout: DiagramFlowVertical,
   arrangeSelectedVertical: LayoutArrowDown,
   arrangeSelectedHorizontal: LayoutArrowRight,
 };
@@ -170,13 +206,19 @@ const cornerShortcutClassName =
   "bg-popover text-popover-foreground pointer-events-none absolute right-px bottom-0.5 max-w-[calc(100%-2px)] truncate rounded-xs px-0.5 font-mono text-[9px]/[12px]";
 
 function isCategoryVisible(id: Category, width: number) {
-  return id === "more" || width >= 358 || (width >= 272 && (id === "create" || id === "layout"));
+  return id === "more" || width >= 392 || (width >= 306 && (id === "create" || id === "layout"));
 }
 
-function stopCanvasKeys(event: KeyboardEvent) {
+function stopCanvasKeys(event: ReactKeyboardEvent) {
   if (!event.altKey && !event.ctrlKey && !event.metaKey && [" ", "Enter", "Tab"].includes(event.key)) {
     event.stopPropagation();
   }
+}
+
+function runToolbarAction(id: string, project: Project) {
+  project.controller.resetCountdownTimer();
+  project.loop();
+  void KeyBindsUI.execute(id, project, "toolbar");
 }
 
 export default function ToolbarContent({ project }: { project: Project }) {
@@ -187,11 +229,14 @@ export default function ToolbarContent({ project }: { project: Project }) {
 
 function CanvasTools({ project }: { project: Project }) {
   const { t } = useTranslation("canvasToolbar");
+  const activeTab = useAtomValue(activeTabAtom);
   const [mouseMode] = Settings.use("mouseLeftMode");
   const modeBindings = KeyBindsUI.use((binding) => mouseModes.some(({ keyBindId }) => keyBindId === binding.id));
   const areaRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [openCategory, setOpenCategory] = useState<OpenCategory>(null);
+  const [heldModifier, setHeldModifier] = useState<keyof typeof modifierMenus | null>(null);
+  const [shortcutVersion, setShortcutVersion] = useState(0);
   const [layout, setLayout] = useState({ width: Infinity, tabBarHeight: 0 });
 
   useLayoutEffect(() => {
@@ -221,12 +266,82 @@ function CanvasTools({ project }: { project: Project }) {
   }, []);
 
   useEffect(() => () => clearTimeout(closeTimer.current), []);
+  useEffect(() => project.keyBindHintEngine?.registerToolbarShortcuts(toolbarShortcutHints), [project]);
+
+  useEffect(() => {
+    if (activeTab !== project) {
+      setHeldModifier(null);
+      return;
+    }
+
+    const openModifierMenu = (event: KeyboardEvent) => {
+      if (
+        (event.key !== "Alt" && event.key !== "Control") ||
+        event.repeat ||
+        event.isComposing ||
+        (event.key === "Alt" ? event.ctrlKey : event.altKey) ||
+        event.metaKey ||
+        event.shiftKey ||
+        !KeyBindsUI.shouldProcessKeyboardEvent()
+      ) {
+        return;
+      }
+
+      clearTimeout(closeTimer.current);
+      setOpenCategory(null);
+      setHeldModifier(event.key);
+    };
+    const closeModifierMenu = () => setHeldModifier(null);
+    const releaseModifier = (event: KeyboardEvent) => {
+      if (event.key === "Alt" || event.key === "Control") {
+        setHeldModifier((held) => (held === event.key && !event[modifierMenus[held].modifier] ? null : held));
+      }
+    };
+    const unregister = KeyBindsUI.registerInputInterceptor({
+      onInput: (event) => {
+        if (
+          !(event instanceof KeyboardEvent) ||
+          event.altKey === event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          store.get(activeTabAtom) !== project
+        ) {
+          return false;
+        }
+
+        const menu = modifierMenuList.find(({ modifier }) => event[modifier]);
+        // macOS 的 Option＋数字会产生符号，按数字键的物理位置匹配。
+        const digit = /^(?:Digit|Numpad)([1-8])$/.exec(event.code)?.[1] ?? event.key;
+        if (!menu || !/^[1-8]$/.test(digit)) return false;
+        const id = menu.actions[Number(digit) - 1];
+        if (!id) return false;
+        event.preventDefault();
+        if (!event.repeat) {
+          runToolbarAction(id, project);
+          if (menu.category === "layout") setShortcutVersion((version) => version + 1);
+        }
+        return true;
+      },
+    });
+
+    window.addEventListener("keydown", openModifierMenu);
+    window.addEventListener("keyup", releaseModifier);
+    window.addEventListener("blur", closeModifierMenu);
+    return () => {
+      unregister();
+      window.removeEventListener("keydown", openModifierMenu);
+      window.removeEventListener("keyup", releaseModifier);
+      window.removeEventListener("blur", closeModifierMenu);
+    };
+  }, [activeTab, project]);
 
   useEffect(() => {
     setOpenCategory((current) => (current && isCategoryVisible(current.id, layout.width) ? current : null));
   }, [layout.width]);
 
   const visibleCategories = categories.filter(({ id }) => isCategoryVisible(id, layout.width));
+  const preview = activeTab === project && heldModifier ? modifierMenus[heldModifier] : null;
+  const previewCategory = preview && (isCategoryVisible(preview.category, layout.width) ? preview.category : "more");
   const overflowRows = useMemo(
     () => [
       ...categories
@@ -255,23 +370,32 @@ function CanvasTools({ project }: { project: Project }) {
         key={id}
         label={t(id)}
         Icon={Icon}
-        shortcut={id === "create" ? (isMac ? "⌥" : "Alt") : undefined}
+        shortcut={
+          id === "create" ? (isMac ? "⌘" : "Ctrl") : modifierMenuList.find((menu) => menu.category === id)?.badge
+        }
         rows={rows}
+        shortcutVersion={shortcutVersion}
         project={project}
         boundary={areaRef.current}
-        open={openCategory?.id === id}
-        pinned={openCategory?.id === id && openCategory.pinned}
+        open={preview ? id === previewCategory : openCategory?.id === id}
+        pinned={!preview && openCategory?.id === id && openCategory.pinned}
         onPreview={() => {
+          if (preview) return;
           clearTimeout(closeTimer.current);
           setOpenCategory((current) => (current?.pinned ? current : { id, pinned: false }));
         }}
         onPin={() => {
+          if (preview) return;
           clearTimeout(closeTimer.current);
           setOpenCategory({ id, pinned: true });
         }}
-        onClose={() => close(id)}
+        onClose={() => {
+          if (!preview) close(id);
+        }}
         onEnterContent={() => clearTimeout(closeTimer.current)}
-        onLeave={() => deferClose(id)}
+        onLeave={() => {
+          if (!preview) deferClose(id);
+        }}
       />
     );
   }
@@ -330,19 +454,17 @@ function CanvasTools({ project }: { project: Project }) {
             );
           })}
           <ToolbarActions
-            rows={groupRows}
+            rows={directActionRows}
             project={project}
             showShortcutBadge
             onRun={(id) => {
               close();
-              project.controller.resetCountdownTimer();
-              project.loop();
-              void KeyBindsUI.execute(id, project, "toolbar");
+              runToolbarAction(id, project);
             }}
           />
           <Separator orientation="vertical" className="mx-0.5 data-[orientation=vertical]:h-5" />
           {visibleCategories.map(({ id, Icon, rows }) => renderCategory(id, Icon, rows))}
-          {renderCategory("more", Ellipsis, overflowRows)}
+          {renderCategory("more", Ellipsis, preview && previewCategory === "more" ? preview.rows : overflowRows)}
         </div>
         {mouseMode === "draw" && <DrawingColorLine />}
       </div>
@@ -355,6 +477,7 @@ function ToolbarCategory({
   Icon,
   shortcut,
   rows,
+  shortcutVersion,
   project,
   boundary,
   open,
@@ -369,6 +492,7 @@ function ToolbarCategory({
   Icon: KeyBindIcon;
   shortcut?: string;
   rows: ActionRows;
+  shortcutVersion: number;
   project: Project;
   boundary: HTMLElement | null;
   open: boolean;
@@ -456,11 +580,10 @@ function ToolbarCategory({
           <ToolbarActions
             rows={rows}
             project={project}
+            shortcutVersion={shortcutVersion}
             onRun={(id) => {
               restoreFocus.current = !!content.current?.contains(document.activeElement);
-              project.controller.resetCountdownTimer();
-              project.loop();
-              void KeyBindsUI.execute(id, project, "toolbar");
+              runToolbarAction(id, project);
               if (!spacingActions.includes(id)) onClose();
             }}
           />
@@ -475,11 +598,13 @@ function ToolbarActions({
   project,
   onRun,
   showShortcutBadge,
+  shortcutVersion = 0,
 }: {
   rows: ActionRows;
   project: Project;
   onRun: (id: string) => void;
   showShortcutBadge?: boolean;
+  shortcutVersion?: number;
 }) {
   const [bindings, setBindings] = useState(() => KeyBindsUI.getAllUIKeyBinds());
   const [selectionVersion, setSelectionVersion] = useState(0);
@@ -494,6 +619,8 @@ function ToolbarActions({
         project.rectangleSelect.getRectangle() !== null,
         ids.includes("undo") && project.historyManager.canUndo,
         ids.includes("redo") && project.historyManager.canRedo,
+        ids.includes("jumpToSelectedEntities") && project.controller.layerMoving.canJump(),
+        ids.includes("jumpToSelectedEntities") && project.controller.layerMoving.isActive,
       ].join("|");
     let previous = summarize();
     const timer = setInterval(() => {
@@ -523,11 +650,13 @@ function ToolbarActions({
               id={id}
               binding={bindings.find((binding) => binding.id === id)}
               project={project}
-              selectionVersion={selectionVersion}
+              selectionVersion={selectionVersion + shortcutVersion}
               showShortcutBadge={showShortcutBadge}
               onRun={(id) => {
                 onRun(id);
-                if (spacingActions.includes(id)) setSelectionVersion((version) => version + 1);
+                if (spacingActions.includes(id) || id === "jumpToSelectedEntities") {
+                  setSelectionVersion((version) => version + 1);
+                }
               }}
             />
           ),
@@ -575,7 +704,10 @@ function ToolbarAction({
   const label = t(`keyBinds:${id}.title`);
   const tooltipLabel = t(`actions.${id}`, { defaultValue: label });
   const shortcut = binding?.key ? formatKeyBindSequenceToString(binding.key, "+", ", ") : "";
+  const menuShortcut = actionShortcuts.get(id);
+  const shortcutBadge = menuShortcut?.digit ?? (showShortcutBadge && binding?.isEnabled ? shortcut : "");
   const Icon = toolbarIcons[id] ?? binding?.icon ?? allKeyBinds.find((keyBind) => keyBind.id === id)?.icon ?? Command;
+  const pressed = id === "jumpToSelectedEntities" ? project.controller.layerMoving.isActive : undefined;
 
   return (
     <CanvasTooltip
@@ -586,6 +718,14 @@ function ToolbarAction({
             <>
               {" "}
               <kbd className="opacity-80">{shortcut}</kbd>
+            </>
+          )}
+          {menuShortcut && (
+            <>
+              {" "}
+              <kbd className="opacity-80">
+                {menuShortcut.badge}+{menuShortcut.digit}
+              </kbd>
             </>
           )}
         </>
@@ -600,16 +740,17 @@ function ToolbarAction({
       >
         <Button
           size="icon"
-          variant="ghost"
+          variant={pressed ? "default" : "ghost"}
           className="relative size-8"
           disabled={disabled}
           aria-label={label}
+          aria-pressed={pressed}
           onClick={() => onRun(id)}
         >
           <Icon data-icon="inline-start" />
-          {showShortcutBadge && binding?.isEnabled && shortcut && (
+          {shortcutBadge && (
             <kbd aria-hidden="true" className={cornerShortcutClassName}>
-              {shortcut}
+              {shortcutBadge}
             </kbd>
           )}
         </Button>

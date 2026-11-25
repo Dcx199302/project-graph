@@ -13,12 +13,15 @@ import {
   Columns3,
   DiamondMinus,
   DiamondPlus,
-  Fish,
   GitBranch,
+  GripHorizontal,
+  GripVertical,
   Hand,
+  MousePointer2,
   Package,
   Plus,
   Rows3,
+  VectorSquare,
   WandSparkles,
 } from "lucide-react";
 import { act } from "react";
@@ -72,13 +75,21 @@ let project: Project;
 const align = vi.fn();
 const create = vi.fn();
 const mindMap = vi.fn();
-const fishbone = vi.fn();
+const rectangleLayout = vi.fn();
 const arrangeVertical = vi.fn();
 const arrangeHorizontal = vi.fn();
 const increaseSpacing = vi.fn();
 const decreaseSpacing = vi.fn();
 const createTwin = vi.fn();
 const pack = vi.fn();
+const jumpBinding = {
+  id: "jumpToSelectedEntities",
+  defaultKey: "j",
+  icon: MousePointer2,
+  when: () => selected > 0,
+  isToggle: true,
+  onPress: (project?: Project) => project!.controller.layerMoving.toggleJump(),
+};
 const packBinding = {
   id: "packEntityToSection",
   defaultKey: "g",
@@ -143,7 +154,16 @@ beforeEach(async () => {
     rectangleSelect: { getRectangle: () => null },
     canvas: { element: document.createElement("canvas") },
     historyManager: { canUndo: false, canRedo: false },
-    controller: { resetCountdownTimer: vi.fn() },
+    controller: {
+      resetCountdownTimer: vi.fn(),
+      layerMoving: {
+        canJump: jumpBinding.when,
+        isActive: false,
+        toggleJump() {
+          this.isActive = !this.isActive;
+        },
+      },
+    },
     loop: vi.fn(),
   } as unknown as Project;
   KeyBindsUI.registerOneUIKeyBind(
@@ -156,7 +176,7 @@ beforeEach(async () => {
     () => selected >= 2,
     AlignStartHorizontal,
   );
-  allKeyBinds.push(drawingBinding, packBinding, twinBinding, dragBinding);
+  allKeyBinds.push(drawingBinding, jumpBinding, packBinding, twinBinding, dragBinding);
   await KeyBindsUI.registerAllUIKeyBinds();
   KeyBindsUI.registerOneUIKeyBind(
     "mindMapLayout",
@@ -169,14 +189,14 @@ beforeEach(async () => {
     WandSparkles,
   );
   KeyBindsUI.registerOneUIKeyBind(
-    "fishboneLayout",
+    "rectangleLayout",
     "",
     true,
-    fishbone,
+    rectangleLayout,
     undefined,
     undefined,
     () => selected >= 2,
-    Fish,
+    VectorSquare,
   );
   KeyBindsUI.registerOneUIKeyBind(
     "arrangeSelectedVertical",
@@ -200,7 +220,7 @@ beforeEach(async () => {
   );
   KeyBindsUI.registerOneUIKeyBind(
     "createTextNodeFromSelectedTop",
-    "A-arrowup",
+    "C-arrowup",
     true,
     create,
     undefined,
@@ -267,7 +287,17 @@ async function render() {
 
 it("reflects mode changes, applies a saved pen color and preserves selection when switching back", async () => {
   selected = 2;
+  const unregister = vi.fn();
+  const registerToolbarShortcuts = vi.fn<Project["keyBindHintEngine"]["registerToolbarShortcuts"]>(() => unregister);
+  project.keyBindHintEngine = { registerToolbarShortcuts } as unknown as Project["keyBindHintEngine"];
   await render();
+  expect(registerToolbarShortcuts).toHaveBeenCalledOnce();
+  const [shortcuts] = registerToolbarShortcuts.mock.calls[0];
+  expect(shortcuts.actionIds.has("createTextNodeFromSelectedTop")).toBe(true);
+  expect(shortcuts.actionIds.has("packEntityToSection")).toBe(true);
+  expect(shortcuts.numberedKeys.has("A-8")).toBe(true);
+  expect(shortcuts.numberedKeys.has("C-6")).toBe(true);
+  expect(shortcuts.numberedKeys.has("C-7")).toBe(false);
   expect(button("selectAndMove").getAttribute("aria-pressed")).toBe("true");
   await act(async () => {
     Settings.mouseLeftMode = "draw";
@@ -284,6 +314,7 @@ it("reflects mode changes, applies a saved pen color and preserves selection whe
   expect(container.querySelector('[aria-label="penColors"]')).toBeNull();
   await act(async () => store.set(isClassroomModeAtom, true));
   expect(container.querySelector('[role="toolbar"]')).toBeNull();
+  expect(unregister).toHaveBeenCalledOnce();
 });
 
 it("shows H and toggles the hand tool once per press or click", async () => {
@@ -390,7 +421,7 @@ it("toggles drawing once per P press and preserves longer shortcuts beginning wi
   }
 });
 
-it("puts Group after the brush and restores Twin Node to Organize with Shift+Y", async () => {
+it("puts Group after Jump To and restores Twin Node to Organize with Shift+Y", async () => {
   const saved = {
     [packBinding.id]: { key: "h", isEnabled: true },
     [twinBinding.id]: { key: "S-y", isEnabled: true },
@@ -407,7 +438,11 @@ it("puts Group after the brush and restores Twin Node to Organize with Shift+Y",
 
   const packButton = button("keyBinds:packEntityToSection.title");
   const toolbar = container.querySelector('[role="toolbar"]')!;
-  expect([...toolbar.querySelectorAll("button")].slice(2, 4)).toEqual([button("draw"), packButton]);
+  expect([...toolbar.querySelectorAll("button")].slice(2, 5)).toEqual([
+    button("draw"),
+    button("keyBinds:jumpToSelectedEntities.title"),
+    packButton,
+  ]);
   expect(packButton.querySelector("kbd")?.textContent).toBe("g");
   expect(packButton.disabled).toBe(true);
   await act(async () => button("organize").click());
@@ -431,6 +466,40 @@ it("puts Group after the brush and restores Twin Node to Organize with Shift+Y",
   expect(Settings.mouseLeftMode).toBe("selectAndMove");
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Y", shiftKey: true })));
   expect(createTwin).toHaveBeenCalledExactlyOnceWith(active);
+});
+
+it("toggles Jump To after the brush with a click or J and preserves the longer J shortcut", async () => {
+  await render();
+  const jump = button("keyBinds:jumpToSelectedEntities.title");
+  expect(jump.querySelector("kbd")?.textContent).toBe("j");
+  expect(jump.disabled).toBe(true);
+  await act(async () => {
+    selected = 1;
+    vi.advanceTimersByTime(100);
+  });
+  await act(async () => jump.click());
+  expect(jump.getAttribute("aria-pressed")).toBe("true");
+
+  const stealth = vi.fn();
+  KeyBindsUI.registerOneUIKeyBind("testStealth", "j a c k a l", true, stealth);
+  store.set(activeTabAtom, Object.assign(Object.create(Project.prototype), project));
+  KeyBindsUI.uiStartListen();
+  const press = (key: string) => act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key })));
+  try {
+    await press("j");
+    await act(async () => vi.advanceTimersByTimeAsync(400));
+    expect(jump.getAttribute("aria-pressed")).toBe("false");
+    await press("j");
+    await press("Escape");
+    await act(async () => vi.advanceTimersByTimeAsync(400));
+    expect(jump.getAttribute("aria-pressed")).toBe("false");
+    for (const key of ["j", "a", "c", "k", "a", "l"]) await press(key);
+    await act(async () => vi.advanceTimersByTimeAsync(400));
+    expect(stealth).toHaveBeenCalledOnce();
+    expect(jump.getAttribute("aria-pressed")).toBe("false");
+  } finally {
+    KeyBindsUI.unregisterOneUIKeyBind("testStealth");
+  }
 });
 
 it("preserves key sequences that start with or pass through G", async () => {
@@ -602,11 +671,79 @@ it("shows alignment and arrangement actions in one row with a vertical separator
 it("shows the creation modifier and only the four directional actions", async () => {
   await render();
   const trigger = button("create");
-  expect(trigger.querySelector("kbd")?.textContent).toBe("Alt");
+  expect(trigger.querySelector("kbd")?.textContent).toBe("Ctrl");
   await act(async () => trigger.click());
   expect([...panel("create")!.querySelectorAll("button")].map((action) => action.getAttribute("aria-label"))).toEqual(
     ["Top", "Right", "Left", "Down"].map((direction) => `keyBinds:createTextNodeFromSelected${direction}.title`),
   );
+});
+
+it("previews alignment while Option is held and runs the eight numbered actions in order", async () => {
+  project = Object.assign(Object.create(Project.prototype), project);
+  store.set(activeTabAtom, project);
+  const performed = vi.fn();
+  const ids = [
+    "alignTop",
+    "alignBottom",
+    "alignLeft",
+    "alignRight",
+    "alignCenterHorizontal",
+    "alignCenterVertical",
+    "arrangeSelectedVertical",
+    "arrangeSelectedHorizontal",
+  ];
+  for (const id of ids) {
+    KeyBindsUI.registerOneUIKeyBind(
+      id,
+      "",
+      true,
+      () => performed(id),
+      undefined,
+      undefined,
+      () => selected >= 2,
+    );
+  }
+  KeyBindsUI.uiStartListen();
+  await render();
+  const press = (type: "keydown" | "keyup", init: KeyboardEventInit) =>
+    act(async () => window.dispatchEvent(new KeyboardEvent(type, { cancelable: true, ...init })));
+
+  expect(button("align").querySelector("kbd")?.textContent).toBe("Alt");
+  await press("keydown", { key: "Alt", altKey: true });
+  const actions = [...panel("align")!.querySelectorAll("button")];
+  expect(actions.map((action) => action.querySelector("kbd")?.textContent)).toEqual(ids.map((_, i) => String(i + 1)));
+  await press("keydown", { key: "¡", code: "Digit1", altKey: true });
+  expect(performed).not.toHaveBeenCalled();
+
+  selected = 2;
+  for (const [i, key] of [..."¡™£¢∞§¶•"].entries()) {
+    await press("keydown", { key, altKey: true, code: `Digit${i + 1}` });
+  }
+  await press("keydown", { key: "•", code: "Digit8", altKey: true, repeat: true });
+  await press("keydown", { key: "1", code: "Digit1", altKey: true, metaKey: true });
+  expect(performed.mock.calls).toEqual(ids.map((id) => [id]));
+  expect(panel("align")).not.toBeNull();
+  await press("keyup", { key: "Alt" });
+  expect(panel("align")).toBeNull();
+
+  const input = document.createElement("input");
+  container.append(input);
+  input.focus();
+  await press("keydown", { key: "Alt", altKey: true });
+  await press("keydown", { key: "¡", code: "Digit1", altKey: true });
+  expect(panel("align")).toBeNull();
+  expect(performed).toHaveBeenCalledTimes(8);
+  input.blur();
+
+  await act(async () => {
+    width = 210;
+    measure();
+    vi.advanceTimersByTime(20);
+  });
+  await press("keydown", { key: "Alt", altKey: true });
+  expect(panel("more")!.querySelectorAll("button")).toHaveLength(8);
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(panel("more")).toBeNull();
 });
 
 it("shows the waypoints and opposing arrows in the connection menu", async () => {
@@ -619,42 +756,77 @@ it("shows the waypoints and opposing arrows in the connection menu", async () =>
   ).not.toBeNull();
 });
 
-it("shows the mind map and fishbone actions for multiple selected nodes", async () => {
+it("uses Ctrl and the numbered keys for the layout menu in its displayed order", async () => {
+  const layoutHorizontal = vi.fn();
+  const layoutVertical = vi.fn();
+  allKeyBinds.push(
+    {
+      id: "layoutToSquare",
+      defaultKey: "5 5",
+      icon: GripHorizontal,
+      when: () => selected >= 2,
+      onPress: layoutHorizontal,
+    },
+    {
+      id: "layoutToSquareVertical",
+      defaultKey: "",
+      icon: GripVertical,
+      when: () => selected >= 2,
+      onPress: layoutVertical,
+    },
+  );
+  await KeyBindsUI.registerAllUIKeyBinds();
+  project = Object.assign(Object.create(Project.prototype), project);
+  store.set(activeTabAtom, project);
+  KeyBindsUI.uiStartListen();
+  const ctrl = (type: "keydown" | "keyup", key: string, ctrlKey: boolean) =>
+    act(async () => window.dispatchEvent(new KeyboardEvent(type, { key, ctrlKey, cancelable: true })));
   await render();
-  await act(async () => button("layout").click());
+  expect(button("layout").querySelector("kbd")?.textContent).toBe("Ctrl");
+  await ctrl("keydown", "Control", true);
+  const horizontal = button("keyBinds:layoutToSquare.title");
+  const vertical = button("keyBinds:layoutToSquareVertical.title");
   const map = button("keyBinds:mindMapLayout.title");
-  const fish = button("keyBinds:fishboneLayout.title");
-  const actions = [map, fish];
-  expect([...panel("layout")!.querySelectorAll("button")]).toEqual([
-    button("keyBinds:layoutToSquare.title"),
-    ...actions,
+  const rectangle = button("keyBinds:rectangleLayout.title");
+  const actions = [
+    horizontal,
+    vertical,
+    map,
+    rectangle,
     button("keyBinds:increaseSelectedNodeSpacing.title"),
     button("keyBinds:decreaseSelectedNodeSpacing.title"),
-  ]);
-  expect(map.querySelector("svg.lucide-diagram-flow-horizontal")).not.toBeNull();
-  expect(fish.querySelector("svg.lucide-fish-symbol")).not.toBeNull();
+  ];
+  expect([...panel("layout")!.querySelectorAll("button")]).toEqual(actions);
+  expect(actions.map((action) => action.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
+  expect(horizontal.querySelector("svg.lucide-grip-horizontal")).not.toBeNull();
+  expect(vertical.querySelector("svg.lucide-grip-vertical")).not.toBeNull();
+  expect(map.querySelector("svg.lucide-diagram-flow-vertical")).not.toBeNull();
+  expect(rectangle.querySelector("svg.lucide-vector-square")).not.toBeNull();
   expect(actions.every((action) => action.disabled)).toBe(true);
-  await act(async () => {
-    selected = 1;
-    vi.advanceTimersByTime(100);
-  });
-  expect(actions.every((action) => action.disabled)).toBe(true);
-  await act(async () => {
-    for (const action of actions) action.click();
-  });
-  expect(mindMap).not.toHaveBeenCalled();
-  expect(fishbone).not.toHaveBeenCalled();
+  await ctrl("keydown", "4", true);
+  expect(rectangleLayout).not.toHaveBeenCalled();
 
   await act(async () => {
     selected = 2;
     vi.advanceTimersByTime(100);
   });
   expect(actions.every((action) => !action.disabled)).toBe(true);
-  await act(async () => map.click());
-  expect(mindMap).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
-  await act(async () => button("layout").click());
-  await act(async () => button("keyBinds:fishboneLayout.title").click());
-  expect(fishbone).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
+  const existingBinding = vi.fn();
+  KeyBindsUI.registerOneUIKeyBind("testExistingCtrl2", "C-2", true, existingBinding);
+  const handlers = [layoutHorizontal, layoutVertical, mindMap, rectangleLayout, increaseSpacing, decreaseSpacing];
+  try {
+    for (const [index, handler] of handlers.entries()) {
+      await ctrl("keydown", String(index + 1), true);
+      expect(handler).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
+    }
+    expect(existingBinding).not.toHaveBeenCalled();
+    expect(actions.at(-1)?.disabled).toBe(true);
+    expect(panel("layout")).not.toBeNull();
+    await ctrl("keyup", "Control", false);
+    expect(panel("layout")).toBeNull();
+  } finally {
+    KeyBindsUI.unregisterOneUIKeyBind("testExistingCtrl2");
+  }
 });
 
 it("keeps layout open for repeated spacing adjustments and refreshes the minimum-gap state", async () => {

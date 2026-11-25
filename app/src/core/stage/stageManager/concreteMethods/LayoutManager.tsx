@@ -7,6 +7,10 @@ import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { Section } from "../../stageObject/entity/Section";
 
+const nodeSpacingStep = 1.12;
+// 默认布局按连续六次拉开间距的比例展开。
+export const looseLayoutScale = nodeSpacingStep ** 6;
+
 @service("layoutManager")
 export class LayoutManager {
   constructor(private readonly project: Project) {}
@@ -25,6 +29,44 @@ export class LayoutManager {
 
   canArrangeSelectedLine() {
     return this.getSelectedLayoutNodes().length >= 2;
+  }
+
+  arrangeSelectedRectangle() {
+    const nodes = this.getSelectedLayoutNodes();
+    if (nodes.length < 2) return;
+
+    const neighbors = new Map(nodes.map((node) => [node, new Set<ConnectableEntity>()]));
+    for (const { source, target } of this.project.stageManager.getEdges()) {
+      if (source === target || !neighbors.has(source) || !neighbors.has(target)) continue;
+      neighbors.get(source)!.add(target);
+      neighbors.get(target)!.add(source);
+    }
+    const hubs = nodes.filter((node) => neighbors.get(node)!.size === nodes.length - 1);
+    const hub = hubs.length === 1 ? hubs[0] : undefined;
+    const items = nodes.map((node) => ({ node, rectangle: node.collisionBox.getRectangle() }));
+    const center = hub
+      ? hub.collisionBox.getRectangle().center
+      : Rectangle.getBoundingRectangle(items.map(({ rectangle }) => rectangle)).center;
+    const outer = items.filter(({ node }) => node !== hub);
+    const gap = 126;
+    const width = Math.max(...items.map(({ rectangle }) => rectangle.width)) + gap;
+    const height = Math.max(...items.map(({ rectangle }) => rectangle.height)) + gap;
+    const slots = Math.ceil(outer.length / 4);
+    const halfHeight = Math.max((height * slots) / 2, hub ? height : 0);
+    const halfWidth = Math.max((width * slots) / 2, hub ? width : 0, halfHeight * 1.4);
+    const offsets = rectangleOutlineOffsets(outer.length, halfWidth * looseLayoutScale, halfHeight * looseLayoutScale);
+
+    const placements = outer.map(({ node, rectangle }, index) => ({
+      node,
+      rectangle: new Rectangle(offsets[index].subtract(rectangle.size.divide(2)), rectangle.size),
+    }));
+    const origin = hub
+      ? center
+      : center.subtract(Rectangle.getBoundingRectangle(placements.map(({ rectangle }) => rectangle)).center);
+    const moves = placements.map(({ node, rectangle }) => ({ node, location: origin.add(rectangle.location) }));
+    this.applyNodeLayout(
+      moves.filter(({ node, location }) => location.distance(node.collisionBox.getRectangle().location) > 1e-6),
+    );
   }
 
   arrangeSelectedLine(axis: "horizontal" | "vertical") {
@@ -75,12 +117,11 @@ export class LayoutManager {
 
   private getSpacingFactor(rectangles: Rectangle[], increase: boolean) {
     if (rectangles.length < 2) return 1;
-    const step = 1.12;
     const centers = rectangles.map((rect) => rect.center);
-    if (increase) return centers.some((center) => !center.equals(centers[0])) ? step : 1;
+    if (increase) return centers.some((center) => !center.equals(centers[0])) ? nodeSpacingStep : 1;
 
     const gap = 12;
-    let factor = 1 / step;
+    let factor = 1 / nodeSpacingStep;
     for (let i = 1; i < rectangles.length; i++) {
       for (let j = 0; j < i; j++) {
         const delta = centers[i].subtract(centers[j]);
@@ -326,7 +367,7 @@ export class LayoutManager {
       }
     }
   }
-  layoutToSquare(entities: Entity[]) {
+  layoutToSquare(entities: Entity[], axis: "horizontal" | "vertical" = "horizontal") {
     const n = entities.length;
     if (n <= 1) return;
 
@@ -339,15 +380,16 @@ export class LayoutManager {
       maxHeight = Math.max(maxHeight, rect.size.y);
     });
 
-    const spacing = 20; // 单元格之间的间距
-    const cellSize = Math.max(maxWidth, maxHeight) + spacing;
+    const spacing = 50; // 单元格之间的间距
+    const cellSize = (Math.max(maxWidth, maxHeight) + spacing) * looseLayoutScale;
 
     // 计算最优的行列数，使网格尽可能接近正方形
     const { rows, cols } = getOptimalRowsCols(n);
+    const vertical = axis === "vertical";
 
     // 计算网格的总尺寸
-    const gridWidth = cols * cellSize;
-    const gridHeight = rows * cellSize;
+    const gridWidth = (vertical ? rows : cols) * cellSize;
+    const gridHeight = (vertical ? cols : rows) * cellSize;
 
     // 计算原始包围盒的中心点
     let minX = Infinity,
@@ -370,10 +412,10 @@ export class LayoutManager {
 
     // 将节点排列到网格中
     entities.forEach((node, index) => {
-      const row = Math.floor(index / cols);
-      const col = index % cols;
-      const cellCenterX = startX + col * cellSize + cellSize / 2;
-      const cellCenterY = startY + row * cellSize + cellSize / 2;
+      const line = Math.floor(index / cols);
+      const indexInLine = index % cols;
+      const cellCenterX = startX + (vertical ? line : indexInLine) * cellSize + cellSize / 2;
+      const cellCenterY = startY + (vertical ? indexInLine : line) * cellSize + cellSize / 2;
       const rect = node.collisionBox.getRectangle();
       const newX = cellCenterX - rect.size.x / 2;
       const newY = cellCenterY - rect.size.y / 2;
@@ -407,6 +449,18 @@ export class LayoutManager {
     }
   }
 }
+function rectangleOutlineOffsets(count: number, x: number, y: number): Vector[] {
+  if (count === 2) return [new Vector(-x, 0), new Vector(x, 0)];
+  if (count === 3) return [new Vector(0, -y), new Vector(x, y), new Vector(-x, y)];
+
+  const corners = [new Vector(-x, -y), new Vector(x, -y), new Vector(x, y), new Vector(-x, y)];
+  return corners.flatMap((corner, side) => {
+    const slots = Math.floor(((side + 1) * count) / 4) - Math.floor((side * count) / 4);
+    const edge = corners[(side + 1) % 4].subtract(corner);
+    return Array.from({ length: slots }, (_, index) => corner.add(edge.multiply(index / slots)));
+  });
+}
+
 // 辅助函数：计算最优的行列数，使网格尽可能接近正方形
 function getOptimalRowsCols(n: number): { rows: number; cols: number } {
   let bestRows = Math.floor(Math.sqrt(n));

@@ -1,3 +1,4 @@
+import { MouseLocation } from "@/core/service/controlService/MouseLocation";
 import { ControllerClass } from "@/core/service/controlService/controller/ControllerClass";
 import { EntityJumpMoveEffect } from "@/core/service/feedbackService/effectEngine/concrete/EntityJumpMoveEffect";
 import { EntityShakeEffect } from "@/core/service/feedbackService/effectEngine/concrete/EntityShakeEffect";
@@ -15,38 +16,55 @@ import { toast } from "sonner";
  */
 
 export class ControllerLayerMovingClass extends ControllerClass {
-  public get isEnabled(): boolean {
-    if (Settings.mouseLeftMode === "draw") {
-      return false;
-    }
+  private armed = false;
+  public targetLocation?: Vector;
+
+  public canJump(): boolean {
+    return (
+      !Settings.viewerMode &&
+      !Settings.isClassroomMode &&
+      !this.project.controller.isCameraLocked &&
+      (!this.project.keyboardOnlyEngine.isOpenning() || !this.project.keyboardOnlyGraphEngine.isCreating()) &&
+      this.project.stageManager.getSelectedEntities().length > 0
+    );
+  }
+
+  public get isActive(): boolean {
+    return this.armed && this.canJump();
+  }
+
+  public toggleJump() {
+    if (this.cancelJump() || !this.canJump()) return;
+    this.armed = true;
+    const pointer = MouseLocation.vectorFor(this.project.canvas.element);
+    this.targetLocation = pointer && this.project.renderer.transformView2World(pointer);
+    this.project.controller.resetCountdownTimer();
+    this.project.loop();
+  }
+
+  public cancelJump(): boolean {
+    if (!this.armed) return false;
+    this.armed = false;
+    this.targetLocation = undefined;
+    this.project.controller.resetCountdownTimer();
     return true;
   }
 
-  public mousemove: (event: MouseEvent) => void = (event: MouseEvent) => {
-    if (!this.project.controller.pressingKeySet.has("alt")) {
+  public override mouseMoveOutWindowForcedShutdown() {
+    this.cancelJump();
+  }
+
+  public override mousemove = (event: PointerEvent) => {
+    if (!this.isActive) {
+      this.cancelJump();
       return;
     }
-    if (this.isEnabled === false) {
-      return;
-    }
-    if (this.project.stageManager.getSelectedEntities().length === 0) {
-      return;
-    }
-    this.project.controller.mouseLocation = this.project.renderer.transformView2World(
-      new Vector(event.clientX, event.clientY),
-    );
+    this.targetLocation = this.project.renderer.transformView2World(new Vector(event.clientX, event.clientY));
   };
 
-  public mouseup: (event: MouseEvent) => void = (event: MouseEvent) => {
-    if (!this.project.controller.pressingKeySet.has("alt")) {
-      return;
-    }
-    if (this.isEnabled === false) {
-      return;
-    }
-    if (this.project.stageManager.getSelectedEntities().length === 0) {
-      return;
-    }
+  public jumpAt(event: PointerEvent) {
+    if (!this.isActive || event.button !== 0) return;
+    this.cancelJump();
     const mouseLocation = this.project.renderer.transformView2World(new Vector(event.clientX, event.clientY));
 
     // 提前检查点击的位置是否有一个TextNode，如果有，则转换成Section
@@ -187,5 +205,5 @@ export class ControllerLayerMovingClass extends ControllerClass {
     this.project.historyManager.recordStep();
     // 播放跳跃音效
     SoundService.play.entityJumpSoundFile();
-  };
+  }
 }

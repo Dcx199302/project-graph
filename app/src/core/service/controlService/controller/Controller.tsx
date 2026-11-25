@@ -59,12 +59,6 @@ export class Controller {
 
   lastMoveLocation = Vector.getZero();
   /**
-   * 当前的鼠标的位置
-   */
-
-  mouseLocation = Vector.getZero();
-
-  /**
    * 有时需要锁定相机，比如 编辑节点时
    */
 
@@ -148,6 +142,10 @@ export class Controller {
       down: (event) => {
         this.mousedown(event);
         this.pointerController = null;
+        if (event.button === 0 && this.layerMoving.isActive) {
+          this.pointerController = this.layerMoving;
+          return;
+        }
         if (this.entityClickSelectAndMove.tryStartDrag(event)) {
           this.pointerController = this.entityClickSelectAndMove;
           return;
@@ -166,6 +164,10 @@ export class Controller {
       },
       up: (event) => {
         this.mouseup(event);
+        if (this.pointerController === this.layerMoving) {
+          this.layerMoving.jumpAt(event);
+          return true;
+        }
         if (this.pointerController) this.pointerController.mouseup(event);
         else this.dispatch((c) => c.mouseup(event));
       },
@@ -193,6 +195,10 @@ export class Controller {
       },
       keydown: (event) => {
         this.keydown(event);
+        if (event.key === "Escape" && this.layerMoving.cancelJump()) {
+          event.preventDefault();
+          return;
+        }
         if (
           event.key === "Enter" &&
           this.project.keyboardOnlyEngine.isOpenning() &&
@@ -221,6 +227,7 @@ export class Controller {
       cancel: (location) => this.cancelInput(location),
     });
     this.unwatchMouseLeftMode = Settings.watch("mouseLeftMode", () => {
+      this.layerMoving.cancelJump();
       if (!this.isMouseDown.some(Boolean) && !this.camera.isPreGrabbingWhenSpace)
         this.setCursorName(CursorNameEnum.Default);
     });

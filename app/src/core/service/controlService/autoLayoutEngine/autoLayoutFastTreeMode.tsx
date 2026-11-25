@@ -2,6 +2,7 @@ import { Project, service } from "@/core/Project";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Edge } from "@/core/stage/stageObject/association/Edge";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
+import { Direction } from "@/types/directions";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle, Line } from "@graphif/shapes";
 
@@ -620,22 +621,27 @@ export class AutoLayoutFastTree {
       const outEdges = this.project.graphMethods
         .getOutgoingEdges(node)
         .filter((edge) => !("lineType" in edge && (edge as { lineType: string }).lineType === "dashed"));
-      const outRightEdges = outEdges.filter((edge) => edge.isLeftToRight());
-      const outLeftEdges = outEdges.filter((edge) => edge.isRightToLeft());
-      const outTopEdges = outEdges.filter((edge) => edge.isBottomToTop());
-      const outBottomEdges = outEdges.filter((edge) => edge.isTopToBottom());
-      const outUnknownEdges = outEdges.filter((edge) => edge.isUnknownDirection());
-      // 非标准连线：端点是混合轴向（如右侧发出+上侧接收），不属于四个标准方向也不是默认中心
-      // 对于非标准连线，只保持父子节点的相对位置不变，但仍对其子树进行递归格式化
-      const outNonStandardEdges = outEdges.filter((edge) => edge.isNonStandardDirection());
+      const edgesByDirection: Record<Direction, Edge[]> = {
+        [Direction.Right]: [],
+        [Direction.Left]: [],
+        [Direction.Up]: [],
+        [Direction.Down]: [],
+      };
+      const unalignedEdges: Edge[] = [];
+      for (const edge of outEdges) {
+        const direction = edge.getTreeDirection();
+        (direction === undefined ? unalignedEdges : edgesByDirection[direction]).push(edge);
+      }
+      const outRightEdges = edgesByDirection[Direction.Right];
+      const outLeftEdges = edgesByDirection[Direction.Left];
+      const outTopEdges = edgesByDirection[Direction.Up];
+      const outBottomEdges = edgesByDirection[Direction.Down];
 
       // 获取排序后的子节点列表
       let rightChildList = outRightEdges.map((edge) => edge.target);
       let leftChildList = outLeftEdges.map((edge) => edge.target);
       let topChildList = outTopEdges.map((edge) => edge.target);
       let bottomChildList = outBottomEdges.map((edge) => edge.target);
-      const unknownChildList = outUnknownEdges.map((edge) => edge.target);
-      const nonStandardChildList = outNonStandardEdges.map((edge) => edge.target);
 
       rightChildList = this.getSortedChildNodes(node, rightChildList, "col");
       leftChildList = this.getSortedChildNodes(node, leftChildList, "col");
@@ -654,12 +660,9 @@ export class AutoLayoutFastTree {
       for (const child of leftChildList) {
         dfs(child); // 递归口
       }
-      for (const child of unknownChildList) {
-        dfs(child); // 递归口
-      }
-      // 非标准连线的子节点：递归格式化其子树，但不调整该子节点与父节点之间的相对位置
-      for (const child of nonStandardChildList) {
-        dfs(child); // 递归口
+      // 无标准方向的连线保留父子相对位置。
+      for (const edge of unalignedEdges) {
+        dfs(edge.target);
       }
       // 排列这些子节点，然后调整子树位置到根节点旁边
 

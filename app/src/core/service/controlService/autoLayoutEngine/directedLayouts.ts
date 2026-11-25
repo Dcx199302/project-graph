@@ -1,8 +1,127 @@
 import { Vector } from "@graphif/data-structures";
-import { Rectangle } from "@graphif/shapes";
+import { Rectangle, SymmetryCurve } from "@graphif/shapes";
 
 type Links = ReadonlyMap<string, ReadonlySet<string>>;
 type Rectangles = ReadonlyMap<string, Rectangle>;
+
+export type MindMapBranch = { parentId: string; side: number };
+
+export const mindMapSpacing = { branches: 62, verticalLevels: 150, horizontalLevels: 186, groups: 94 };
+
+export function layoutVerticalMindMap(
+  rootId: string,
+  roots: string[],
+  ordered: string[],
+  children: ReadonlyMap<string, string[]>,
+  rectangles: Rectangles,
+  sign: number,
+  placements: Map<string, Rectangle>,
+  fanParents: Map<string, MindMapBranch>,
+) {
+  const { branches: gap, verticalLevels: depthGap } = mindMapSpacing;
+  // 枝条错落的幅度独立于节点间距，避免加宽间距时把深枝推得过远。
+  const fanStep = 32;
+  const layouts = new Map<string, { width: number; height: number; levels: number; offsets: Map<string, Vector> }>();
+  const nodes = [rootId, ...ordered];
+  for (const id of [...nodes].reverse()) {
+    const rectangle = rectangles.get(id)!;
+    const siblings = id === rootId ? roots : children.get(id)!;
+    const offsets = new Map<string, Vector>();
+    let width = rectangle.width;
+    let height = rectangle.height;
+    const levels = siblings.reduce((max, child) => Math.max(max, layouts.get(child)!.levels + 1), 0);
+    if (siblings.length >= 5) {
+      const middle = Math.floor(siblings.length / 2);
+      const leader = siblings[middle];
+      const leaderLayout = layouts.get(leader)!;
+      let leaderDepth = rectangle.height + depthGap;
+      for (const side of [-1, 1]) {
+        const branches = side < 0 ? siblings.slice(0, middle) : siblings.slice(middle + 1).reverse();
+        // 伸出的枝条可能超过较低叶片的横坐标，按生长方向排序才能让重复布局保持稳定。
+        branches.sort((a, b) => sign * (rectangles.get(a)!.center.y - rectangles.get(b)!.center.y));
+        // 两侧分别沿生长方向排布，较深的子树只会占用所在一侧的空间。
+        let depth = rectangle.height + depthGap + (side > 0 ? fanStep / 2 : 0);
+        for (const [index, child] of branches.entries()) {
+          const childLayout = layouts.get(child)!;
+          depth += Math.min(3, childLayout.levels) * fanStep;
+          offsets.set(child, new Vector(0, depth));
+          const rhythm = ((index + (side > 0 ? 1 : 0)) % 3) - 1;
+          const spacing = gap + fanStep * (Math.max(0.5, 1.5 - index / branches.length + rhythm * 0.8) - 1);
+          depth += childLayout.height + spacing;
+        }
+        leaderDepth = Math.max(leaderDepth, depth);
+
+        let inner = rectangle.width / 2 + gap;
+        let previousCenter = 0;
+        for (const child of [...branches].reverse()) {
+          const childLayout = layouts.get(child)!;
+          const childRect = rectangles.get(child)!;
+          const halfWidth = childLayout.width / 2;
+          const center = Math.max(inner + halfWidth, previousCenter + gap);
+          offsets.get(child)!.x = center;
+          // 为更靠里的枝条留出走线空间，弧线不会经过外层标签。
+          inner = center - childRect.width / 2 + gap;
+          previousCenter = center;
+        }
+
+        const occupied: Rectangle[] = [];
+        const origin = new Vector(0, rectangle.height);
+        const away = new Vector(0, 1);
+        const inward = new Vector(-1, 0);
+        for (const [index, child] of branches.entries()) {
+          const childLayout = layouts.get(child)!;
+          const childRect = rectangles.get(child)!;
+          const offset = offsets.get(child)!;
+          const spread = childLayout.levels
+            ? Math.min(16, 8 + 3 * childLayout.levels) * fanStep
+            : (index % 3 === (side < 0 ? 1 : 2) ? 4 : 0) * fanStep;
+          let center = offset.x + spread;
+          // 只收回有遮挡的分支，避免深枝把同侧其他叶片一起推远。
+          for (; center > offset.x; center -= fanStep) {
+            const entry = new Vector(center - childRect.width / 2, offset.y + childRect.height / 2);
+            const curve = new SymmetryCurve(origin, away, entry, inward);
+            if (!occupied.some((bounds) => entry.x >= bounds.left && curve.isCollideWithRectangle(bounds))) break;
+          }
+          occupied.push(
+            new Rectangle(
+              new Vector(center - childLayout.width / 2, offset.y),
+              new Vector(childLayout.width, childLayout.height),
+            ).expandFromCenter(8),
+          );
+          offset.x = side * center;
+          fanParents.set(child, { parentId: id, side });
+          width = Math.max(width, 2 * center + childLayout.width);
+        }
+      }
+      offsets.set(leader, new Vector(0, leaderDepth));
+      fanParents.set(leader, { parentId: id, side: 0 });
+      width = Math.max(width, leaderLayout.width);
+      height = leaderDepth + leaderLayout.height;
+    } else if (siblings.length) {
+      const rowWidth =
+        siblings.reduce((sum, child) => sum + layouts.get(child)!.width, 0) + (siblings.length - 1) * gap;
+      let left = -rowWidth / 2;
+      for (const child of siblings) {
+        const size = layouts.get(child)!;
+        offsets.set(child, new Vector(left + size.width / 2, rectangle.height + depthGap));
+        left += size.width + gap;
+        height = Math.max(height, rectangle.height + depthGap + size.height);
+      }
+      width = Math.max(width, rowWidth);
+    }
+    layouts.set(id, { width, height, levels, offsets });
+  }
+
+  for (const id of nodes) {
+    const parent = placements.get(id)!;
+    for (const [child, offset] of layouts.get(id)!.offsets) {
+      const rectangle = rectangles.get(child)!;
+      const x = parent.center.x + offset.x - rectangle.width / 2;
+      const y = sign > 0 ? parent.top + offset.y : parent.bottom - offset.y - rectangle.height;
+      placements.set(child, new Rectangle(new Vector(x, y), rectangle.size));
+    }
+  }
+}
 
 function getDirectedOrder(rectangles: Rectangles, incoming: Links): string[] {
   const visited = new Set<string>();

@@ -685,6 +685,7 @@ export const shortcutKeysGroups: ShortcutKeysGroup[] = [
     title: "moveEntity",
     icon: <Move />,
     keys: [
+      "jumpToSelectedEntities",
       "moveUpSelectedEntities",
       "moveDownSelectedEntities",
       "moveLeftSelectedEntities",
@@ -853,6 +854,9 @@ export const shortcutKeysGroups: ShortcutKeysGroup[] = [
       "alignTopToBottomNoSpace",
       "arrangeSelectedVertical",
       "arrangeSelectedHorizontal",
+      "layoutToSquare",
+      "layoutToSquareVertical",
+      "rectangleLayout",
       "increaseSelectedNodeSpacing",
       "decreaseSelectedNodeSpacing",
     ],

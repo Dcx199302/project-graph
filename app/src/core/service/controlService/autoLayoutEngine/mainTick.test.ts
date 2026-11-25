@@ -91,6 +91,33 @@ describe("AutoLayout.autoLayoutDAG", () => {
 });
 
 describe("AutoLayout.autoLayoutMindMap", () => {
+  it.each(["horizontal", "vertical"] as const)(
+    "expands node center distances while keeping the %s tree root fixed",
+    (axis) => {
+      const horizontal = axis === "horizontal";
+      const root = createEntity("root", 0, 0, 100, 50);
+      const child = createEntity("child", horizontal ? 400 : 0, horizontal ? 0 : 400, 100, 50);
+      const leaf = createEntity("leaf", horizontal ? 800 : 0, horizontal ? 0 : 800, 100, 50);
+      for (const node of [child, leaf]) {
+        vi.mocked(node.moveTo).mockImplementation((location) => {
+          (node.collisionBox.shapes[0] as Rectangle).location = location;
+        });
+      }
+      const project = createMindMapProject([createEdge(root, child), createEdge(child, leaf)]);
+      const layout = new AutoLayout(project);
+      const scale = 1.12 ** 6;
+      layout.autoLayoutGraph([root, child, leaf], "mindMap", scale);
+
+      const center = (node: ConnectableEntity) => node.collisionBox.getRectangle().center;
+      const distance = (horizontal ? 286 : 200) * scale;
+      expect(center(root).distance(center(child))).toBeCloseTo(distance);
+      expect(center(child).distance(center(leaf))).toBeCloseTo(distance);
+      expect(root.moveTo).not.toHaveBeenCalled();
+      layout.autoLayoutGraph([root, child, leaf], "mindMap", scale);
+      expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+    },
+  );
+
   it("fixes a single selected node in place and lays out only its direct neighbors", () => {
     const root = createEntity("root", 10, 20, 100, 50);
     const left = createEntity("left", -200, 10, 80, 50);
@@ -109,8 +136,8 @@ describe("AutoLayout.autoLayoutMindMap", () => {
 
     expect(new AutoLayout(project).autoLayoutMindMap([root])).toBe(true);
     expect(root.moveTo).not.toHaveBeenCalled();
-    expect(left.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-190, 20));
-    expect(right.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, 20));
+    expect(left.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-256, 20));
+    expect(right.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, 20));
     expect(indirect.moveTo).not.toHaveBeenCalled();
     expect(locked.moveTo).not.toHaveBeenCalled();
     expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
@@ -125,28 +152,87 @@ describe("AutoLayout.autoLayoutMindMap", () => {
     expect(project.historyManager.recordStep).not.toHaveBeenCalled();
   });
 
-  it("keeps the root fixed and aligns the selected branches without moving an unselected child", () => {
+  it("keeps the root and manually fixed port direction while laying out only selected branches", () => {
     const root = createEntity("root", 10, 20, 100, 50);
     const upper = createEntity("upper", 0, 0, 160, 70);
     const lower = createEntity("lower", 0, 500, 80, 50);
     const leaf = createEntity("leaf", 0, 100, 80, 50);
     const unselected = createEntity("unselected", 0, 200, 80, 50);
-    const project = createMindMapProject([
-      createEdge(root, lower, 0.99, 0.01),
-      createEdge(root, upper),
-      createEdge(upper, leaf),
-      createEdge(upper, unselected),
+    const project = createMindMapProject([]);
+    const fixedEdge = new LineEdge(project, {
+      associationList: [root, lower],
+      sourceRectangleRate: new Vector(0.99, 0.5),
+      targetRectangleRate: new Vector(0.01, 0.5),
+      fixedEndpoints: true,
+    });
+    vi.spyOn(project.stageManager, "getEdges").mockReturnValue([
+      fixedEdge,
+      new LineEdge(project, { associationList: [root, upper] }),
+      new LineEdge(project, { associationList: [upper, leaf] }),
+      new LineEdge(project, { associationList: [upper, unselected] }),
     ]);
 
     expect(new AutoLayout(project).autoLayoutMindMap([lower, leaf, root, upper])).toBe(true);
     expect(root.moveTo).not.toHaveBeenCalled();
-    expect(upper.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, -31));
-    expect(lower.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, 71));
-    expect(leaf.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(510, -21));
+    expect(upper.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-20, 220));
+    expect(lower.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, 20));
+    expect(leaf.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(20, 440));
     expect(unselected.moveTo).not.toHaveBeenCalled();
     expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
     expect(project.sectionMoveDepth).toBe(0);
   });
+
+  it.each([
+    ["right", 1, 0, 286, 0],
+    ["left", -1, 0, -286, 0],
+    ["down", 0, 1, 0, 200],
+    ["up", 0, -1, 0, -200],
+  ] as const)(
+    "grows %s based on the whole tree even when its first branch starts on the opposite side",
+    (_, dx, dy, x, y) => {
+      const root = createEntity("root", 0, 0, 100, 50);
+      const branch = createEntity("branch", -160 * dx, -160 * dy, 100, 50);
+      const first = createEntity("first", 600 * dx - 60 * dy, 600 * dy - 60 * dx, 100, 50);
+      const second = createEntity("second", 600 * dx + 60 * dy, 600 * dy + 60 * dx, 100, 50);
+      const project = createMindMapProject([
+        createEdge(root, branch),
+        createEdge(branch, first),
+        createEdge(branch, second),
+      ]);
+
+      expect(new AutoLayout(project).autoLayoutMindMap([branch, first, second, root])).toBe(true);
+      expect(root.moveTo).not.toHaveBeenCalled();
+      expect(branch.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(x, y));
+    },
+  );
+
+  it.each([
+    ["top", new Vector(300, -180), new Vector(300, 20), new Vector(300, 220)],
+    ["bottom", new Vector(300, 200), new Vector(300, 0), new Vector(300, -200)],
+    ["right", new Vector(1500, 0), new Vector(1214, 0), new Vector(928, 0)],
+    ["left", new Vector(0, 0), new Vector(286, 0), new Vector(572, 0)],
+  ] as const)(
+    "follows a root dragged to the %s side of a tree with automatic right-facing ports",
+    (_, rootPosition, branchPosition, leafPosition) => {
+      const root = createEntity("root", 0, 0, 100, 50);
+      const branch = createEntity("branch", 240, 0, 100, 50);
+      const leaf = createEntity("leaf", 1200, 0, 100, 50);
+      const project = createMindMapProject([]);
+      const connect = (source: ConnectableEntity, target: ConnectableEntity) =>
+        new LineEdge(project, {
+          associationList: [source, target],
+          sourceRectangleRate: new Vector(0.99, 0.5),
+          targetRectangleRate: new Vector(0.01, 0.5),
+        });
+      vi.spyOn(project.stageManager, "getEdges").mockReturnValue([connect(root, branch), connect(branch, leaf)]);
+      (root.collisionBox.shapes[0] as Rectangle).location = rootPosition;
+
+      expect(new AutoLayout(project).autoLayoutGraph([leaf, root, branch], "mindMap")).toBe(true);
+      expect(root.moveTo).not.toHaveBeenCalled();
+      expect(branch.moveTo).toHaveBeenCalledExactlyOnceWith(branchPosition);
+      expect(leaf.moveTo).toHaveBeenCalledExactlyOnceWith(leafPosition);
+    },
+  );
 
   it.each([false, true])("places incoming branches left of the hub (two sources: %s)", (twoSources) => {
     const hub = createEntity("a", 10, 20, 100, 50);
@@ -165,14 +251,14 @@ describe("AutoLayout.autoLayoutMindMap", () => {
 
     expect(new AutoLayout(project).autoLayoutMindMap(selected)).toBe(true);
     expect(hub.moveTo).not.toHaveBeenCalled();
-    expect(incoming.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-190, twoSources ? -21 : 20));
+    expect(incoming.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-256, twoSources ? -36 : 20));
     if (twoSources) {
-      expect(anotherIncoming.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-230, 61));
+      expect(anotherIncoming.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-296, 76));
     } else {
       expect(anotherIncoming.moveTo).not.toHaveBeenCalled();
     }
-    expect(first.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, -21));
-    expect(second.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, 61));
+    expect(first.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, -36));
+    expect(second.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, 76));
   });
 
   it("automatically arranges all four sides, using vertical ports and existing positions", () => {
@@ -192,11 +278,11 @@ describe("AutoLayout.autoLayoutMindMap", () => {
 
     expect(new AutoLayout(project).autoLayoutMindMap([root])).toBe(true);
     expect(root.moveTo).not.toHaveBeenCalled();
-    expect(left.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-190, 20));
-    expect(right.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, 20));
-    expect(aboveLeft.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-36, -150));
-    expect(aboveRight.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(76, -150));
-    expect(below.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(20, 190));
+    expect(left.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-256, 20));
+    expect(right.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, 20));
+    expect(aboveLeft.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-51, -180));
+    expect(aboveRight.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(91, -180));
+    expect(below.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(20, 220));
   });
 
   it("keeps vertical levels aligned and clears overlaps with perpendicular branches", () => {
@@ -204,12 +290,16 @@ describe("AutoLayout.autoLayoutMindMap", () => {
     const above = createEntity("above", -250, -450, 600, 50);
     const right = createEntity("right", 250, -200, 100, 400);
     const leaf = createEntity("leaf", 10, -550, 80, 50);
-    const project = createMindMapProject([createEdge(root, above), createEdge(root, right), createEdge(above, leaf)]);
+    const project = createMindMapProject([
+      createEdge(root, above),
+      createEdge(root, right, 0.99, 0.01),
+      createEdge(above, leaf),
+    ]);
 
     expect(new AutoLayout(project).autoLayoutMindMap([above, leaf, right, root])).toBe(true);
-    expect(right.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, -155));
-    expect(above.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-240, -237));
-    expect(leaf.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(20, -407));
+    expect(right.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, -155));
+    expect(above.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-240, -267));
+    expect(leaf.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(20, -467));
   });
 
   it("keeps outer siblings in their direction on repeated automatic layout", () => {
@@ -225,6 +315,92 @@ describe("AutoLayout.autoLayoutMindMap", () => {
     const positions = siblings.map((node) => node.collisionBox.getRectangle().location);
     expect(layout.autoLayoutMindMap([root])).toBe(true);
     expect(siblings.map((node) => node.collisionBox.getRectangle().location)).toEqual(positions);
+  });
+
+  it.each([
+    [-1, 9],
+    [1, 9],
+    [-1, 10],
+    [1, 10],
+  ])("gives the vertical tree a central branch and staggered sides (direction %s, %s children)", (sign, count) => {
+    const root = createEntity("root", 0, 0, 100, 50);
+    const middle = Math.floor(count / 2);
+    const siblings = Array.from({ length: count }, (_, index) =>
+      createEntity(String(index), (index - middle) * 220, sign * 300, 160 + index * 7, 50),
+    );
+    const leaves = [
+      createEntity("inner leaf", 0, sign * 600, 120, 50),
+      createEntity("outer leaf", 150, sign * 600, 120, 50),
+    ];
+    const sideParent = siblings[count - 2];
+    const tip = createEntity("leaf tip", 5, sign * 900, 80, 50);
+    const nodes = [root, ...siblings, ...leaves, ...(count === 10 ? [tip] : [])];
+    for (const node of nodes) {
+      Object.defineProperty(node, "clipConnectionToBoundary", { value: true });
+      vi.mocked(node.moveTo).mockImplementation((location) => {
+        (node.collisionBox.shapes[0] as Rectangle).location = location;
+      });
+    }
+    const project = createMindMapProject([]);
+    const fanEdges = siblings.map((node) => new LineEdge(project, { associationList: [root, node] }));
+    vi.spyOn(project.stageManager, "getEdges").mockReturnValue([
+      ...fanEdges,
+      ...leaves.map((leaf) => new LineEdge(project, { associationList: [sideParent, leaf] })),
+      ...(count === 10 ? [new LineEdge(project, { associationList: [leaves[0], tip] })] : []),
+    ]);
+    const layout = new AutoLayout(project);
+    const rect = (node: ConnectableEntity) => node.collisionBox.getRectangle();
+    const gap = (parent: ConnectableEntity, child: ConnectableEntity) =>
+      sign > 0 ? rect(child).top - rect(parent).bottom : rect(parent).top - rect(child).bottom;
+
+    expect(layout.autoLayoutMindMap(nodes)).toBe(true);
+    expect(root.moveTo).not.toHaveBeenCalled();
+    const depths = siblings.map((node) => gap(root, node));
+    const left = depths.slice(0, middle);
+    const right = depths.slice(middle + 1).reverse();
+    expect(left).toEqual([...left].sort((a, b) => a - b));
+    expect(right).toEqual([...right].sort((a, b) => a - b));
+    expect(left[0]).toBe(150);
+    expect(right[0]).toBeGreaterThan(left[0]);
+    expect(left[2] - left[1]).toBeLessThan(right[2] - right[1]);
+    expect(depths[middle]).toBeGreaterThan(Math.max(...left, ...right));
+    expect(rect(siblings[middle]).center.x).toBe(rect(root).center.x);
+    expect(rect(sideParent).left - rect(siblings[count - 1]).left).toBeGreaterThan(200);
+    const leftGaps = left.slice(1).map((depth, index) => depth - left[index]);
+    expect(Math.max(...leftGaps) - Math.min(...leftGaps)).toBeGreaterThan(32);
+    expect(leaves.map((leaf) => gap(sideParent, leaf))).toEqual([150, 150]);
+    const rowWidth = siblings.reduce((width, node) => width + rect(node).width, 0) + (count - 1) * 62;
+    expect(Rectangle.getBoundingRectangle(siblings.map(rect)).width).toBeLessThan(rowWidth * 0.65);
+    for (const [index, edge] of fanEdges.entries()) {
+      const { start, end } = edge.bodyLine;
+      const child = rect(siblings[index]);
+      expect(start).toEqual(sign > 0 ? rect(root).bottomCenter : rect(root).topCenter);
+      const inward = sign > 0 ? child.topCenter : child.bottomCenter;
+      expect(end).toEqual(index < middle ? child.rightCenter : index > middle ? child.leftCenter : inward);
+      const curve = new SymmetryCurve(
+        start,
+        Edge.getNormalVectorByRate(edge.sourceRectangleRate)!,
+        end,
+        Edge.getNormalVectorByRate(edge.targetRectangleRate)!,
+      );
+      expect(
+        nodes.some((node) => node !== root && node !== edge.target && curve.isCollideWithRectangle(rect(node))),
+      ).toBe(false);
+    }
+    const positions = nodes.map((node) => rect(node).location);
+    expect(layout.autoLayoutMindMap(nodes)).toBe(true);
+    expect(nodes.map((node) => rect(node).location)).toEqual(positions);
+    expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+
+    const scale = 1.12 ** 6;
+    const center = rect(root).center;
+    const distances = nodes.map((node) => rect(node).center.distance(center));
+    expect(layout.autoLayoutGraph(nodes, "mindMap", scale)).toBe(true);
+    for (const [index, node] of nodes.entries()) {
+      expect(rect(node).center.distance(center)).toBeCloseTo(distances[index] * scale);
+    }
+    expect(layout.autoLayoutGraph(nodes, "mindMap", scale)).toBe(true);
+    expect(project.historyManager.recordStep).toHaveBeenCalledTimes(2);
   });
 
   it.each(["position", "ports"])("keeps incoming framework nodes on the right based on their %s", (basis) => {
@@ -243,7 +419,7 @@ describe("AutoLayout.autoLayoutMindMap", () => {
     expect(new AutoLayout(project).autoLayoutMindMap([...frameworks, server])).toBe(true);
     expect(server.moveTo).not.toHaveBeenCalled();
     for (const [index, node] of frameworks.entries()) {
-      expect(node.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(230, -62 + index * 82));
+      expect(node.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(296, -92 + index * 112));
       expect(edges[index].source).toBe(node);
       expect(edges[index].target).toBe(server);
     }
@@ -271,12 +447,12 @@ describe("AutoLayout.autoLayoutMindMap", () => {
       new AutoLayout(project).autoLayoutMindMap([isolated, first, otherRoot, second, third, hub, otherChild]),
     ).toBe(true);
     expect(hub.moveTo).not.toHaveBeenCalled();
-    expect(first.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(220, -82));
-    expect(second.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(220, 0));
-    expect(third.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(220, 82));
-    expect(otherRoot.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(384, 0));
-    expect(otherChild.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(604, 0));
-    expect(isolated.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(768, 5));
+    expect(first.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(286, -112));
+    expect(second.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(286, 0));
+    expect(third.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(286, 112));
+    expect(otherRoot.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(480, 0));
+    expect(otherChild.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(766, 0));
+    expect(isolated.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(960, 5));
     expect(reverseEdge.source).toBe(second);
     expect(reverseEdge.target).toBe(hub);
     expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
@@ -298,7 +474,7 @@ describe("AutoLayout.autoLayoutMindMap", () => {
 
     expect(new AutoLayout(project).autoLayoutMindMap([source, hub, other, first, second])).toBe(true);
     expect(hub.moveTo).not.toHaveBeenCalled();
-    expect(source.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-220, 0));
+    expect(source.moveTo).toHaveBeenCalledExactlyOnceWith(new Vector(-286, 0));
   });
 });
 

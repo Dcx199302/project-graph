@@ -32,10 +32,6 @@ export class ControllerRectangleSelectClass extends ControllerClass {
   }
 
   public mousedown: (event: MouseEvent) => void = (event) => {
-    if (this.project.controller.pressingKeySet.has("alt")) {
-      // layer moving mode
-      return;
-    }
     if (Settings.mouseLeftMode !== "selectAndMove") {
       return;
     }

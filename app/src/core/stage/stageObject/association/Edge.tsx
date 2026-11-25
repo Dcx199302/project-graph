@@ -1,6 +1,7 @@
 import { ConnectableAssociation } from "@/core/stage/stageObject/abstract/Association";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
+import { Direction } from "@/types/directions";
 import { Vector } from "@graphif/data-structures";
 import { serializable } from "@graphif/serializer";
 import { Line, Rectangle } from "@graphif/shapes";
@@ -274,6 +275,15 @@ export abstract class Edge extends ConnectableAssociation {
   }
   public isBottomToTop(): boolean {
     return this.sourceRectangleRate.y === 0.01 && this.targetRectangleRate.y === 0.99;
+  }
+
+  public getTreeDirection(): Direction | undefined {
+    // 使用画布当前的端点方向，拖动节点时无需修改保存的端点。
+    const { sourceRate, targetRate } = this.bodyLineGeometry;
+    if (sourceRate.x === 0.99 && targetRate.x === 0.01) return Direction.Right;
+    if (sourceRate.x === 0.01 && targetRate.x === 0.99) return Direction.Left;
+    if (sourceRate.y === 0.99 && targetRate.y === 0.01) return Direction.Down;
+    if (sourceRate.y === 0.01 && targetRate.y === 0.99) return Direction.Up;
   }
 
   public isUnknownDirection(): boolean {

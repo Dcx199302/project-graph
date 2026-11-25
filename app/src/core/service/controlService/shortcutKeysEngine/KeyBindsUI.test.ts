@@ -23,8 +23,8 @@ vi.mock("@/utils/store", () => ({ createStore: async () => config.store }));
 vi.mock("./shortcutKeysRegister", () => ({ allKeyBinds: [] }));
 
 afterEach(() => {
+  for (const { id } of allKeyBinds) KeyBindsUI.unregisterOneUIKeyBind(id);
   allKeyBinds.length = 0;
-  KeyBindsUI.unregisterOneUIKeyBind("redo");
   KeyBindsUI.uiStopListen();
   config.project = undefined;
   document.body.replaceChildren();
@@ -71,6 +71,37 @@ it.each([
     expect(onPress).toHaveBeenCalledTimes(enabled ? 1 : 0);
   },
 );
+
+it.each([true, false])("swaps saved default directional shortcuts on macOS=%s", async (isMac) => {
+  config.isMac = isMac;
+  const create = "createTextNodeFromSelectedTop";
+  const move = "moveUpSelectedEntities";
+  const custom = "moveLeftSelectedEntities";
+  const command = isMac ? "M" : "C";
+  const saved = new Map<string, unknown>([
+    [create, { key: "A-arrowup", isEnabled: false }],
+    [move, `${command}-arrowup`],
+    [custom, { key: "u" }],
+  ]);
+  config.store.get.mockImplementation(async (key: string) => saved.get(key));
+  config.store.set.mockImplementation(async (key: string, value: unknown) => void saved.set(key, value));
+  const action = { onPress: vi.fn(), when: () => true, icon: Redo };
+  allKeyBinds.push(
+    { ...action, id: create, defaultKey: "C-arrowup" },
+    { ...action, id: move, defaultKey: "A-arrowup" },
+    { ...action, id: custom, defaultKey: "A-arrowleft" },
+  );
+
+  await KeyBindsUI.registerAllUIKeyBinds();
+  expect(KeyBindsUI.getUIKeyBind(create)).toMatchObject({ key: `${command}-arrowup`, isEnabled: false });
+  expect(KeyBindsUI.getUIKeyBind(move)).toMatchObject({ key: "A-arrowup", isEnabled: true });
+  expect(KeyBindsUI.getUIKeyBind(custom)?.key).toBe("u");
+  expect(saved.get("directionalShortcutsMigrated")).toBe(true);
+
+  saved.set(create, { key: "A-arrowup" });
+  await KeyBindsUI.registerAllUIKeyBinds();
+  expect(KeyBindsUI.getUIKeyBind(create)?.key).toBe("A-arrowup");
+});
 
 it.each([false, true])("blocks native macOS history on the canvas with Shift=%s and leaves text alone", (shiftKey) => {
   config.isMac = true;

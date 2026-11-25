@@ -2,13 +2,28 @@ import { Project, service } from "@/core/Project";
 import { Renderer } from "@/core/render/canvas2d/renderer";
 import { Settings } from "@/core/service/Settings";
 import { Section } from "@/core/stage/stageObject/entity/Section";
-import { getTextSize } from "@/utils/font";
 import { Color, colorInvert, mixColors, Vector } from "@graphif/data-structures";
 import { CubicBezierCurve, Rectangle } from "@graphif/shapes";
 
 @service("sectionRenderer")
 export class SectionRenderer {
   constructor(private readonly project: Project) {}
+
+  private renderTitle(section: Section) {
+    if (section.isEditingTitle) return;
+    this.project.textRenderer.renderMultiLineText(
+      section.text,
+      this.project.renderer.transformWorld2View(section.rectangle.location.add(Vector.same(Renderer.NODE_PADDING))),
+      Renderer.FONT_SIZE * this.project.camera.currentScale,
+      Infinity,
+      this.titleColor(section),
+      1,
+    );
+  }
+
+  private titleColor(section: Section): Color {
+    return colorInvert(section.color.a === 1 ? section.color : this.project.stageStyleManager.currentStyle.Background);
+  }
 
   /** 画折叠状态 */
   private renderCollapsed(section: Section) {
@@ -35,16 +50,7 @@ export class SectionRenderer {
       Math.max(section.parentSection ? 0 : 1, 2 * this.project.camera.currentScale),
       Renderer.NODE_ROUNDED_RADIUS + 4 * this.project.camera.currentScale,
     );
-    if (!section.isEditingTitle) {
-      this.project.textRenderer.renderText(
-        section.text,
-        this.project.renderer.transformWorld2View(section.rectangle.location.add(Vector.same(Renderer.NODE_PADDING))),
-        Renderer.FONT_SIZE * this.project.camera.currentScale,
-        section.color.a === 1
-          ? colorInvert(section.color)
-          : colorInvert(this.project.stageStyleManager.currentStyle.Background),
-      );
-    }
+    this.renderTitle(section);
     // 选中时渲染展开尺寸的虚线框
     if (section.isSelected) {
       const normalRect = section["_collisionBoxNormal"].getRectangle();
@@ -98,17 +104,7 @@ export class SectionRenderer {
       );
     }
 
-    if (!isBigTitleActive && !section.isEditingTitle) {
-      // 正常显示标题
-      this.project.textRenderer.renderText(
-        section.text,
-        this.project.renderer.transformWorld2View(section.rectangle.location.add(Vector.same(Renderer.NODE_PADDING))),
-        Renderer.FONT_SIZE * this.project.camera.currentScale,
-        section.color.a === 1
-          ? colorInvert(section.color)
-          : colorInvert(this.project.stageStyleManager.currentStyle.Background),
-      );
-    }
+    if (!isBigTitleActive) this.renderTitle(section);
   }
 
   renderBackgroundColor(section: Section) {
@@ -116,7 +112,8 @@ export class SectionRenderer {
       // 只填充顶部标题条（不透明），标题为空时跳过
       if (section.text === "") return;
       const color = section.color.clone();
-      const titleBarHeight = (Renderer.FONT_SIZE + Renderer.NODE_PADDING * 2) * this.project.camera.currentScale;
+      const titleHeight = section.text.split("\n").length * Renderer.FONT_SIZE;
+      const titleBarHeight = (titleHeight + Renderer.NODE_PADDING * 2) * this.project.camera.currentScale;
       const viewRect = new Rectangle(
         this.project.renderer.transformWorld2View(section.rectangle.location),
         section.rectangle.size.multiply(this.project.camera.currentScale),
@@ -173,14 +170,10 @@ export class SectionRenderer {
     if (section.isEditingTitle) return;
 
     // 缩放过小了，显示巨大化文字
-    this.project.textRenderer.renderTextInRectangle(
+    this.project.textRenderer.renderWrappedTextInRectangle(
       section.text,
       viewRect,
-      section.color.a === 1
-        ? colorInvert(section.color)
-        : colorInvert(this.project.stageStyleManager.currentStyle.Background),
-      undefined,
-      undefined,
+      this.titleColor(section),
       section.isSelected ? 0 : 6,
     );
   }
@@ -191,27 +184,33 @@ export class SectionRenderer {
    * @returns
    */
   renderTopTitle(section: Section) {
-    if (!this.project.sectionMethods.isSectionBigTitleActive(section)) {
+    if (
+      !this.project.sectionMethods.isSectionBigTitleActive(section) ||
+      section.isEditingTitle ||
+      !section.text.trim()
+    ) {
       return;
     }
     // === 优化性能
     const sectionViewSize = section.rectangle.size.multiply(this.project.camera.currentScale);
     if (Math.max(sectionViewSize.x, sectionViewSize.y) < 20) return;
     // ===
-    const fontSize = 20 * (0.5 * this.project.camera.currentScale + 0.5);
+    const preferredFontSize = 20 * (0.5 * this.project.camera.currentScale + 0.5);
+    const fontSize = Settings.textIntegerLocationAndSizeRender ? Math.round(preferredFontSize) : preferredFontSize;
     const leftTopLocation = section.collisionBox.getRectangle().leftTop;
     const leftTopViewLocation = this.project.renderer.transformWorld2View(leftTopLocation);
-    const leftTopFontViewLocation = leftTopViewLocation.subtract(new Vector(0, fontSize));
+    const availableWidth = Math.max(
+      this.project.textRenderer.measureMinimumTitleWrapWidth(section.text, fontSize),
+      sectionViewSize.x - 4,
+    );
+    const wrapWidth = Settings.textIntegerLocationAndSizeRender ? Math.ceil(availableWidth) : availableWidth;
+    const textSize = this.project.textRenderer.measureMultiLineTextSize(section.text, fontSize, wrapWidth, 1);
+    const leftTopFontViewLocation = leftTopViewLocation.subtract(new Vector(0, textSize.y));
     const bgColor =
       section.color.a === 0
         ? this.project.stageStyleManager.currentStyle.Background.toNewAlpha(Settings.sectionBigTitleOpacity)
         : section.color.toNewAlpha(Settings.sectionBigTitleOpacity);
 
-    const textColor =
-      section.color.a === 1
-        ? colorInvert(section.color)
-        : colorInvert(this.project.stageStyleManager.currentStyle.Background);
-    const textSize = getTextSize(section.text, fontSize);
     this.project.shapeRenderer.renderRect(
       new Rectangle(leftTopFontViewLocation, textSize).expandFromCenter(2),
       bgColor,
@@ -220,7 +219,14 @@ export class SectionRenderer {
       2,
     );
 
-    this.project.textRenderer.renderText(section.text, leftTopFontViewLocation, fontSize, textColor);
+    this.project.textRenderer.renderMultiLineText(
+      section.text,
+      leftTopFontViewLocation,
+      fontSize,
+      wrapWidth,
+      this.titleColor(section),
+      1,
+    );
   }
 
   // private getFontSizeBySectionSize(section: Section): Vector {

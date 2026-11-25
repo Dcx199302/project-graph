@@ -24,6 +24,7 @@ import { ExtensionEntityRenderer } from "./ExtensionEntityRenderer";
  */
 @service("entityRenderer")
 export class EntityRenderer {
+  private sectionsInStageOrder: Section[] = [];
   private sectionSortedZIndex: Section[] = [];
   public extensionEntityRenderer: ExtensionEntityRenderer;
 
@@ -31,27 +32,24 @@ export class EntityRenderer {
     this.extensionEntityRenderer = new ExtensionEntityRenderer(this.project);
   }
 
-  /**
-   * 对所有section排序一次
-   * 为了防止每帧都调用导致排序，为了提高性能
-   * 决定：每隔几秒更新一次
-   */
-  sortSectionsByZIndex() {
-    const sections = this.project.stageManager.getSections();
-    sections.sort((a, b) => a.collisionBox.getRectangle().top - b.collisionBox.getRectangle().top);
-    this.sectionSortedZIndex = sections;
+  sortSectionsByZIndex(sections = this.project.stageManager.getSections()) {
+    this.sectionsInStageOrder = sections;
+    this.sectionSortedZIndex = [...sections].sort(
+      (a, b) => a.collisionBox.getRectangle().top - b.collisionBox.getRectangle().top,
+    );
   }
 
   private tickNumber = 0;
 
   renderAllSectionsBackground(viewRectangle: Rectangle) {
-    if (this.sectionSortedZIndex.length !== this.project.stageManager.getSections().length) {
-      this.sortSectionsByZIndex();
-    } else {
-      // 假设fps=60，则10秒更新一次
-      if (this.tickNumber % 600 === 0) {
-        this.sortSectionsByZIndex();
-      }
+    const sections = this.project.stageManager.getSections();
+    // 撤销、重做会替换分组实例，即使分组数量未变，也不能沿用之前的绘制顺序。
+    if (
+      this.tickNumber % 600 === 0 ||
+      sections.length !== this.sectionsInStageOrder.length ||
+      sections.some((section, index) => section !== this.sectionsInStageOrder[index])
+    ) {
+      this.sortSectionsByZIndex(sections);
     }
     // 1 遍历所有section实体，画底部颜色
     for (const section of this.sectionSortedZIndex) {

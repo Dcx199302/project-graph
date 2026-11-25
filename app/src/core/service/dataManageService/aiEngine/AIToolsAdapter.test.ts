@@ -92,7 +92,6 @@ describe("Built-in Tool consumer adapters", () => {
 
   it("projects the canonical catalog into the unchanged tool-window shape without loading executors", () => {
     const windowEntries = getBuiltInToolWindowEntries();
-    expect(windowEntries).toHaveLength(29);
     expect(windowEntries.map(({ name, description, parameters }) => ({ name, description, parameters }))).toEqual(
       builtInToolCatalog.map(({ name, description, inputSchema }) => ({
         name,
@@ -218,7 +217,7 @@ describe("Built-in Tool consumer adapters", () => {
     expect(mocks.loaderCalls).toEqual(["search_and_add_image_node"]);
     expect(mocks.executorCalls).toEqual([
       {
-        index: 27,
+        index: builtInToolCatalog.findIndex(({ name }) => name === "search_and_add_image_node"),
         input: { query: "diagram" },
         references: expect.any(Object),
         context: { abortSignal: "signal" },

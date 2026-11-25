@@ -8,6 +8,50 @@ findWindow:
   useRegex: Use regular expression
   invalidRegex: Invalid regular expression
 
+aiPanel:
+  messages: Chat messages
+  messageInput: Message
+  emptyTitle: What would you like to do on the canvas?
+  suggestions:
+    arrangeSelection:
+      label: Arrange selection
+      prompt: Arrange the selected nodes based on their relationships.
+    reviewGraph:
+      label: Review canvas relationships
+      prompt: Read the canvas and briefly explain how the main nodes are related.
+  latestMessage: Latest message
+  placeholder: Describe what to connect, or ask AI to arrange the canvas…
+  selection: "Selected · {{items}}"
+  selectedNodes: "Nodes {{count}}"
+  selectedEdges: "Edges {{count}}"
+  generating: Generating
+  newlineShortcut: Shift + Enter for a new line
+  stop: Stop
+  send: Send
+  tokenUsage: "Session input {{input}} tokens, output {{output}} tokens"
+  tokenUsageHint: Session input and output tokens. Actual billing depends on the model provider.
+  user: You
+  assistant: AI assistant
+  generatingDetail: Generating detailed reply
+  viewDetail: View detailed reply
+  addToCanvas: Add to canvas
+  activityInProgress: Working
+  activity: Activity
+  toolCalls: "Tool calls · {{count}}"
+  toolFailures: "Failed · {{count}}"
+  approvalError: "Could not submit tool approval. {{message}}"
+  approvalRequired: Tool call needs approval
+  deny: Deny
+  allowOnce: Allow once
+  toolStates:
+    input-streaming: Preparing input
+    input-available: Running
+    approval-requested: Awaiting approval
+    approval-responded: Approval processed
+    output-available: Done
+    output-error: Failed
+    output-denied: Denied
+
 projectStatus:
   emptyCanvas: No nodes on the canvas
   noVisibleNodes: No visible nodes in this view. Click to reset.

@@ -5,7 +5,7 @@ import { ConnectableEntity } from "@/core/stage/stageObject/abstract/Connectable
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { MultiTargetUndirectedEdge } from "@/core/stage/stageObject/association/MutiTargetUndirectedEdge";
-import { getTextSize } from "@/utils/font";
+import { getMultiLineTextSize } from "@/utils/font";
 import { Color, Vector } from "@graphif/data-structures";
 import { id, passExtraAtArg1, passObject, serializable } from "@graphif/serializer";
 import { Line, Rectangle, Shape } from "@graphif/shapes";
@@ -47,11 +47,9 @@ export class Section extends ConnectableEntity {
   }
 
   /** 获取折叠状态下的碰撞箱 */
-  private collapsedCollisionBox(): CollisionBox {
+  private collapsedCollisionBox(titleSize: Vector): CollisionBox {
     const centerLocation = this._collisionBoxNormal.getRectangle().center;
-    const collapsedRectangleSize = getTextSize(this.text, Renderer.FONT_SIZE).add(
-      Vector.same(Renderer.NODE_PADDING).multiply(2),
-    );
+    const collapsedRectangleSize = titleSize.add(Vector.same(Renderer.NODE_PADDING * 2));
     const collapsedRectangle = new Rectangle(
       centerLocation.clone().subtract(collapsedRectangleSize.multiply(0.5)),
       collapsedRectangleSize,
@@ -142,6 +140,10 @@ export class Section extends ConnectableEntity {
     this.adjustLocationAndSize();
   }
 
+  get titleBarHeight(): number {
+    return this.text === "" ? 0 : 50 + (this.text.split("\n").length - 1) * Renderer.FONT_SIZE;
+  }
+
   /**
    * 根据子内容 自动调整分组框的位置和大小
    * 如果没有子内容，则
@@ -149,14 +151,17 @@ export class Section extends ConnectableEntity {
    */
   adjustLocationAndSize() {
     let rectangle: Rectangle;
-    const titleSize = getTextSize(this.text, Renderer.FONT_SIZE);
+    const titleSize = getMultiLineTextSize(this.text, Renderer.FONT_SIZE, 1);
 
-    const titleBarHeight = this.text === "" ? 0 : 50;
+    const titleBarHeight = this.titleBarHeight;
 
     if (this.children.length === 0) {
       rectangle = new Rectangle(
         this.collisionBox.getRectangle().location,
-        new Vector(Math.max(titleSize.x + Renderer.NODE_PADDING * 2, 100), 100),
+        new Vector(
+          Math.max(titleSize.x + Renderer.NODE_PADDING * 2, 100),
+          Math.max(titleSize.y + Renderer.NODE_PADDING * 2, 100),
+        ),
       );
     } else {
       const bounds = this.children.map((child) => child.collisionBox.getRectangle());
@@ -193,7 +198,7 @@ export class Section extends ConnectableEntity {
       this._collisionBoxNormal.shapes.push(newRect);
     }
     // 调整折叠状态
-    this._collisionBoxWhenCollapsed = this.collapsedCollisionBox();
+    this._collisionBoxWhenCollapsed = this.collapsedCollisionBox(titleSize);
   }
   /**
    * 根据自身的折叠状态调整子节点的状态
@@ -240,7 +245,7 @@ export class Section extends ConnectableEntity {
     return this.rectangle.location.clone().add(this.rectangle.size.clone().multiply(0.5));
   }
 
-  move(delta: Vector): void {
+  move(delta: Vector, movingSeparately?: ReadonlySet<Entity>): void {
     const outermostMove = this.project.sectionMoveDepth === 0;
     this.project.sectionMoveDepth++;
     try {
@@ -255,11 +260,12 @@ export class Section extends ConnectableEntity {
       }
       // 让内部元素也移动
       for (const child of this.children) {
-        // 跳过已被选中的子元素，避免重复移动（解决速度叠加bug）
-        if (child.isSelected) {
+        // 批量布局按目标节点跳过，拖拽时按选区跳过，避免连带移动两次。
+        if (movingSeparately ? movingSeparately.has(child) : child.isSelected) {
           continue;
         }
-        child.move(delta);
+        if (child instanceof Section) child.move(delta, movingSeparately);
+        else child.move(delta);
       }
     } finally {
       this.project.sectionMoveDepth--;
@@ -294,10 +300,10 @@ export class Section extends ConnectableEntity {
    * 将某个物体 的最小外接矩形的左上角位置 移动到某个位置
    * @param location
    */
-  moveTo(location: Vector): void {
+  moveTo(location: Vector, movingSeparately?: ReadonlySet<Entity>): void {
     const currentLeftTop = this.rectangle.location;
     const delta = location.clone().subtract(currentLeftTop);
-    this.move(delta);
+    this.move(delta, movingSeparately);
     this.updateFatherSectionByMove();
   }
 }

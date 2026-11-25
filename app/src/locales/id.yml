@@ -2,6 +2,50 @@ findWindow:
   useRegex: Gunakan ekspresi reguler
   invalidRegex: Ekspresi reguler tidak valid
 
+aiPanel:
+  messages: Pesan percakapan
+  messageInput: Pesan
+  emptyTitle: Apa yang ingin Anda lakukan di kanvas?
+  suggestions:
+    arrangeSelection:
+      label: Tata simpul terpilih
+      prompt: Tata simpul yang dipilih berdasarkan hubungan antarsimpul.
+    reviewGraph:
+      label: Tinjau hubungan di kanvas
+      prompt: Baca kanvas dan jelaskan secara singkat hubungan antarsimpul utama.
+  latestMessage: Pesan terbaru
+  placeholder: Jelaskan hubungan yang ingin dibuat, atau minta AI menata kanvas…
+  selection: "Dipilih · {{items}}"
+  selectedNodes: "{{count}} simpul"
+  selectedEdges: "{{count}} koneksi"
+  generating: Sedang membuat balasan
+  newlineShortcut: Shift + Enter untuk baris baru
+  stop: Hentikan
+  send: Kirim
+  tokenUsage: "Masukan sesi {{input}} token, keluaran {{output}} token"
+  tokenUsageHint: Jumlah token masukan dan keluaran sesi. Tagihan ditentukan oleh penyedia model.
+  user: Anda
+  assistant: Asisten AI
+  generatingDetail: Sedang membuat balasan terperinci
+  viewDetail: Lihat balasan terperinci
+  addToCanvas: Tambahkan ke kanvas
+  activityInProgress: Sedang memproses
+  activity: Aktivitas
+  toolCalls: "{{count}} panggilan alat"
+  toolFailures: "{{count}} gagal"
+  approvalError: "Gagal mengirim persetujuan penggunaan alat. {{message}}"
+  approvalRequired: Panggilan alat memerlukan persetujuan
+  deny: Tolak
+  allowOnce: Izinkan sekali
+  toolStates:
+    input-streaming: Menyiapkan masukan
+    input-available: Sedang berjalan
+    approval-requested: Menunggu persetujuan
+    approval-responded: Persetujuan diproses
+    output-available: Selesai
+    output-error: Gagal
+    output-denied: Ditolak
+
 projectStatus:
   nodes: "{{count}} simpul"
   edges: "{{count}} koneksi"

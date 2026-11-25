@@ -9,7 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("native menu labels", () => {
   it.each(["file", "view", "actions", "settings", "ai", "window", "extensions", "about"] as const)(
-    "renders the %s Lucide icon and title at Retina resolution",
+    "renders the %s icon and title as a black template at Retina resolution",
     async (id) => {
       let svg = "";
       const context = {
@@ -45,8 +45,8 @@ describe("native menu labels", () => {
           about: "lucide-circle-alert",
         }[id],
       );
-      expect(svg).toContain('stroke="white"');
-      expect(context.fillStyle).toBe("white");
+      expect(svg).toContain('stroke="black"');
+      expect(context.fillStyle).toBe("black");
       expect(context.scale).toHaveBeenCalledWith(2, 2);
       expect(context.fillText).toHaveBeenCalledWith("菜单", 22, 9);
       expect(createImage).toHaveBeenLastCalledWith(expect.any(Uint8Array), 104, 36);

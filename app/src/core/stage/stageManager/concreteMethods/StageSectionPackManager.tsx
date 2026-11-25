@@ -355,10 +355,7 @@ export class SectionPackManager {
       }
     }
     const section = Section.fromEntities(this.project, addEntities);
-    let smartTitle = this.getSmartSectionTitle(addEntities);
-    if (smartTitle.length > 10) {
-      smartTitle = smartTitle.slice(0, 10) + "...";
-    }
+    const smartTitle = this.getSmartSectionTitle(addEntities);
     section.text =
       smartTitle.length > 0
         ? smartTitle
@@ -371,6 +368,7 @@ export class SectionPackManager {
       }
     }
     this.project.stageManager.updateReferences();
+    this.resolveNewSectionCollisions(section);
     this.project.historyManager.recordStep();
 
     return section;
@@ -431,6 +429,7 @@ export class SectionPackManager {
 
     // 将质点放入Section
     this.project.sectionInOutManager.goInSection([topLeftPoint, bottomRightPoint], section);
+    this.resolveNewSectionCollisions(section);
 
     // 清空矩形框
     rectangleSelect.shutDown();
@@ -439,6 +438,23 @@ export class SectionPackManager {
     this.project.historyManager.recordStep();
 
     return section;
+  }
+
+  private resolveNewSectionCollisions(section: Section) {
+    if (!Settings.isEnableEntityCollision && !Settings.isEnableSectionCollision) return;
+    if (section.isHiddenBySectionCollapse || section.nearestLockedAncestorSection) return;
+
+    // 新分组会撑大外层分组，因此每一层都检查自己的同级对象。
+    for (let current: Section | null = section; current; current = current.parentSection) {
+      if (Settings.isEnableEntityCollision) {
+        const siblings = current.parentSection?.children ?? this.project.stageManager.getTopLevelEntities();
+        const candidates = siblings.filter(
+          (entity) => !entity.isHiddenBySectionCollapse && !(entity instanceof Section && entity.locked),
+        );
+        Entity.resolveMoveCollisions(this.project, [current], undefined, candidates);
+      }
+      if (Settings.isEnableSectionCollision) this.project.sectionCollisionSolver.solveOverlaps(current);
+    }
   }
 
   /**

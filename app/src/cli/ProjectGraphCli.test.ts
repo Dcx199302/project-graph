@@ -208,6 +208,7 @@ const openProjectToolMatrix: ReadonlyArray<{
   { category: "project", name: "edit_text_node", input: { ref: "n1", data: {} } },
   { category: "project", name: "edit_image_node", input: { ref: "n1", data: {} } },
   { category: "project", name: "auto_layout_dag", input: { refs: ["n1", "n2"] } },
+  { category: "project", name: "layout_nodes", input: { refs: ["n1", "n2"], mode: "rectangle" } },
   { category: "viewport", name: "create_text_node", input: { text: "Text" } },
   { category: "viewport", name: "generate_node_tree_by_text", input: { text: "Root" } },
   { category: "project", name: "expand_node_tree_from_node", input: { ref: "n1", text: "Child" } },
@@ -396,7 +397,7 @@ describe("Project Graph CLI process contract", { timeout: 15_000 }, () => {
     const tools = JSON.parse(result.stdout) as Array<Record<string, unknown>>;
 
     expect(result).toMatchObject({ status: 0, stderr: "" });
-    expect(tools).toHaveLength(29);
+    expect(tools).toHaveLength(openProjectToolMatrix.length);
     expect(tools[0]).toMatchObject({
       name: "get_all_nodes",
       description: expect.any(String),
@@ -719,6 +720,55 @@ process.stdout.write(JSON.stringify({ status: "error", code: "PROJECT_LOAD_FAILE
     expect(readFileSync(projectPath)).toEqual(before);
   });
 
+  it.skipIf(productionEntry || process.platform === "win32")(
+    "persists a grid layout containing a group and a node in another group in a closed project",
+    async () => {
+      const [first, second] = createMutationStage();
+      const groupIds = ["44444444-4444-4444-8444-444444444444", "55555555-5555-4555-8555-555555555555"];
+      const projectPath = await createProjectFixture("2.7.0", [
+        first,
+        second,
+        ...groupIds.map((uuid, index) => ({
+          _: "Section",
+          uuid,
+          text: `Group ${index}`,
+          children: [{ $: `/${index}` }],
+        })),
+      ]);
+      const snapshot = {
+        entries: [
+          { ref: "n1", uuid: groupIds[0] },
+          { ref: "n2", uuid: "22222222-2222-4222-8222-222222222222" },
+        ],
+        nextNodeRef: 3,
+        nextEdgeRef: 1,
+      };
+      const helper = createFakeOwnershipHelper(`
+const hold = process.argv[2] === "try-hold-project";
+const response = hold
+  ? { status: "acquired", canonicalPath: process.argv[3] }
+  : { status: "loaded", snapshot: ${JSON.stringify(snapshot)} };
+process.stdout.write(JSON.stringify(response) + "\\n");
+if (hold) process.stdin.resume();
+`);
+      const before = readFileSync(projectPath);
+      const result = await runCliAsyncWithEnvironment(
+        { PROJECT_GRAPH_OWNERSHIP_HELPER_PATH: helper },
+        "tool",
+        "invoke",
+        "layout_nodes",
+        "--project",
+        projectPath,
+        "--input",
+        '{"refs":["n1","n2"],"mode":"grid_vertical"}',
+      );
+
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toEqual({ success: true, mode: "grid_vertical", movedCount: 2 });
+      expect(readFileSync(projectPath)).not.toEqual(before);
+    },
+  );
+
   it("reports executor readiness on the benchmark timing channel", async () => {
     const projectPath = await createProjectFixture();
     const executorReadyPath = join(dirname(projectPath), "executor-ready.txt");
@@ -919,6 +969,18 @@ process.stdout.write(JSON.stringify({ status: "error", code: "PROJECT_LOAD_FAILE
     );
     expect(layout).toMatchObject({ status: 0, stderr: "" });
     expect(JSON.parse(layout.stdout)).toMatchObject({ success: true, movedCount: 2, internalEdgeCount: 1 });
+
+    const menuLayout = runCli(
+      "tool",
+      "invoke",
+      "layout_nodes",
+      "--project",
+      projectPath,
+      "--input",
+      '{"refs":["n1","n2"],"mode":"grid_vertical"}',
+    );
+    expect(menuLayout).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(menuLayout.stdout)).toMatchObject({ success: true, mode: "grid_vertical", movedCount: 2 });
 
     const tree = runCli(
       "tool",
@@ -1619,7 +1681,7 @@ process.stdout.write(JSON.stringify({ status: "error", code: "PROJECT_LOAD_FAILE
     }
   }, 15_000);
 
-  it("routes the complete 19/6/4 built-in tool matrix to the matching Open Project", async () => {
+  it("routes the complete built-in tool matrix to the matching Open Project", async () => {
     const projectPath = await createProjectFixture();
     const before = readFileSync(projectPath);
     const host = await createOpenProjectHost(projectPath, { routed: true });
@@ -1631,10 +1693,10 @@ process.stdout.write(JSON.stringify({ status: "error", code: "PROJECT_LOAD_FAILE
         ),
       );
 
-      expect(openProjectToolMatrix.filter(({ category }) => category === "project")).toHaveLength(19);
+      expect(openProjectToolMatrix.filter(({ category }) => category === "project")).toHaveLength(20);
       expect(openProjectToolMatrix.filter(({ category }) => category === "selection")).toHaveLength(6);
       expect(openProjectToolMatrix.filter(({ category }) => category === "viewport")).toHaveLength(4);
-      expect(new Set(openProjectToolMatrix.map(({ name }) => name))).toHaveLength(29);
+      expect(new Set(openProjectToolMatrix.map(({ name }) => name))).toHaveLength(openProjectToolMatrix.length);
       expect(results).toEqual(
         openProjectToolMatrix.map(() => ({ status: 0, stdout: '{"routed":true}\n', stderr: "" })),
       );
@@ -1647,7 +1709,7 @@ process.stdout.write(JSON.stringify({ status: "error", code: "PROJECT_LOAD_FAILE
           })),
         ),
       );
-      expect(host.requests).toHaveLength(29);
+      expect(host.requests).toHaveLength(openProjectToolMatrix.length);
       expect(readFileSync(projectPath)).toEqual(before);
     } finally {
       await host.close();

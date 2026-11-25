@@ -119,14 +119,19 @@ export abstract class Entity extends StageObject {
     Entity.resolveMoveCollisions(project, [this]);
   }
 
-  static resolveMoveCollisions(project: Project, sources: Entity[], protectedEntities: Iterable<Entity> = sources) {
+  static resolveMoveCollisions(
+    project: Project,
+    sources: Entity[],
+    protectedEntities: Iterable<Entity> = sources,
+    candidates?: readonly Entity[],
+  ) {
     if (!Settings.isEnableEntityCollision || sources.length === 0) return;
 
     const pass = { pending: sources, moved: new Set(protectedEntities) };
     for (const source of sources) pass.moved.add(source);
     Entity.collisionPasses.set(project, pass);
     try {
-      const entities = project.stageManager.getEntities();
+      const entities = candidates ?? project.stageManager.getEntities();
       for (const source of pass.pending) {
         for (const entity of entities) {
           if (!pass.moved.has(entity)) source.collideWithOtherEntity(entity);

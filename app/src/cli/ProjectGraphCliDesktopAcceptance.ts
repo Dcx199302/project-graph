@@ -41,6 +41,7 @@ const invocationDefinitions: readonly InvocationDefinition[] = [
     fixture: "image",
   },
   { category: "project", name: "auto_layout_dag", input: { refs: ["n1", "n2"] }, fixture: "graph" },
+  { category: "project", name: "layout_nodes", input: { refs: ["n1", "n2"], mode: "rectangle" }, fixture: "graph" },
   { category: "viewport", name: "create_text_node", input: { text: "Created from CLI" } },
   { category: "viewport", name: "generate_node_tree_by_text", input: { text: "Root\n\tChild" } },
   { category: "project", name: "expand_node_tree_from_node", input: { ref: "n1", text: "Child" } },
@@ -414,8 +415,8 @@ async function runAcceptance(): Promise<void> {
       { phase: "ready" }
     >;
     if (
-      ready.projectCount !== 29 ||
-      ready.categories.project !== 19 ||
+      ready.projectCount !== invocationDefinitions.length ||
+      ready.categories.project !== 20 ||
       ready.categories.selection !== 6 ||
       ready.categories.viewport !== 4
     ) {

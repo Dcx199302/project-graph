@@ -8,7 +8,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,11 +53,11 @@ import { AIRequestTraceView } from "@/sub/AIRequestTraceView";
 import { useChat } from "@ai-sdk/react";
 import { Color, Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@radix-ui/react-collapsible";
 import { code } from "@streamdown/code";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from "ai";
 import { useAtom } from "jotai";
 import {
+  ArrowDown,
   Bot,
   Check,
   ChevronRight,
@@ -66,14 +68,14 @@ import {
   Pencil,
   Plus,
   Send,
-  ShieldCheck,
   Sparkles,
   Square,
   Trash2,
   User,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
@@ -123,12 +125,7 @@ type ContextWindowState =
   | { status: "unknown" }
   | { status: "error"; message: string };
 
-function createAnswerNode(message: UIMessage, project: Project) {
-  const answerText = (Array.isArray(message.parts) ? message.parts : [])
-    .filter((p: any) => p.type === "text")
-    .map((p: any) => p.text ?? "")
-    .join("\n")
-    .trim();
+function createAnswerNode(answerText: string, project: Project) {
   if (!answerText) {
     toast.error("该消息没有可落盘的文本");
     return;
@@ -297,9 +294,12 @@ function AIChatWorkspace({ project, tabId }: { project: Project; tabId: string }
   const actionsDisabled = requesting || operationInProgress || !sessionState;
 
   return (
-    <div className="from-background via-background to-muted/30 flex h-full flex-col bg-gradient-to-b">
-      <div data-pg-drag-region className="border-border/70 flex items-center gap-2 border-b px-3 py-2">
-        <div className="bg-primary/10 text-primary flex size-8 items-center justify-center rounded-xl">
+    <div className="bg-background flex h-full flex-col">
+      <div
+        data-pg-drag-region
+        className="border-border/70 bg-card flex shrink-0 items-center gap-2 border-b px-4 py-2.5"
+      >
+        <div className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
           <Sparkles className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -491,8 +491,12 @@ function AIChatPanel({
   onRequestingChange: (requesting: boolean) => void;
   onSessionSaved: (state: AIChatSessionProjectState) => void;
 }) {
+  const { t } = useTranslation("aiPanel");
   const [inputValue, setInputValue] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesElRef = useRef<HTMLDivElement>(null);
+  const followMessages = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showTokenCount] = Settings.use("aiShowTokenCount");
   const [showDebug] = Settings.use("showDebug");
   const [autoApproveMcpTools, setAutoApproveMcpTools] = Settings.use("aiAutoApproveMcpTools");
@@ -506,7 +510,7 @@ function AIChatPanel({
     () => project.aiEngine.createConversation(project, references, () => contextWindowTokenLimitRef.current),
     [project, references],
   );
-  const [selectedCount, setSelectedCount] = useState(0);
+  const [selection, setSelection] = useState({ nodes: 0, edges: 0 });
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [contextWindowState, setContextWindowState] = useState<ContextWindowState>({ status: "loading" });
   const projectUri = project.uri.toString();
@@ -542,9 +546,25 @@ function AIChatPanel({
     messagesRef.current = messages;
   }, [messages]);
 
-  useEffect(() => {
-    messagesElRef.current?.scrollTo({ top: messagesElRef.current.scrollHeight, behavior: "smooth" });
+  useLayoutEffect(() => {
+    const list = messagesElRef.current;
+    if (list && followMessages.current) list.scrollTop = list.scrollHeight;
   }, [messages]);
+
+  function updateScrollPosition() {
+    const list = messagesElRef.current;
+    if (!list) return;
+    followMessages.current = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
+    setShowJumpToLatest(!followMessages.current);
+  }
+
+  function jumpToLatest() {
+    const list = messagesElRef.current;
+    if (!list) return;
+    followMessages.current = true;
+    list.scrollTop = list.scrollHeight;
+    setShowJumpToLatest(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -606,9 +626,13 @@ function AIChatPanel({
   }, [messages, persistMessages, requesting, sessionLoaded]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSelectedCount(project.stageManager.getSelectedEntities().length);
-    }, 300);
+    const updateSelection = () => {
+      const nodes = project.stageManager.getSelectedEntities().length;
+      const edges = project.stageManager.getSelectedAssociations().length;
+      setSelection((previous) => (previous.nodes === nodes && previous.edges === edges ? previous : { nodes, edges }));
+    };
+    updateSelection();
+    const interval = setInterval(updateSelection, 300);
     return () => clearInterval(interval);
   }, [project]);
 
@@ -637,13 +661,14 @@ function AIChatPanel({
     );
     const prefix = selectedRefs.length > 0 ? `[selected: ${selectedRefs.join(" ")}]\n` : "";
     const messageText = prefix + text;
+    jumpToLatest();
     project.aiEngine.getRequestTraceBuffer().capturePendingInput(session.id, messageText);
     sendMessage({ text: messageText });
     setInputValue("");
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       e.stopPropagation();
       handleUserSend();
@@ -696,85 +721,115 @@ function AIChatPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div ref={messagesElRef} className="flex-1 overflow-y-auto px-3 py-4">
-        {messages.length === 0 ? (
-          <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center">
-            <Bot className="size-10" />
-            <div className="text-foreground font-medium">说说你想怎么改这张图</div>
-            <div className="max-w-72 text-sm">
-              例如：整理当前选中的节点、生成一棵知识树、批量改颜色，或者让它先读取画布再规划。
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={messagesElRef}
+          onScroll={updateScrollPosition}
+          className="flex-1 overflow-y-auto overscroll-contain px-4 pt-5 pb-9"
+          role="region"
+          aria-label={t("messages")}
+        >
+          {messages.length === 0 ? (
+            <div className="mx-auto flex min-h-full max-w-72 flex-col items-center justify-center gap-4 py-4 text-center">
+              <div className="bg-primary/10 text-primary flex size-12 shrink-0 items-center justify-center rounded-2xl">
+                <Sparkles className="size-5" />
+              </div>
+              <h2 className="text-base font-semibold">{t("emptyTitle")}</h2>
+              <div className="flex flex-wrap justify-center gap-2">
+                {(["arrangeSelection", "reviewGraph"] as const).map((action) => (
+                  <Button
+                    key={action}
+                    variant="outline"
+                    size="sm"
+                    disabled={!sessionLoaded || requesting || Boolean(inputValue.trim())}
+                    onClick={() => {
+                      setInputValue(t(`suggestions.${action}.prompt`));
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    {t(`suggestions.${action}.label`)}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {messages.map((message, index) => (
-              <MessageBubble
-                key={message.id}
-                message={message as any}
-                components={markdownComponents}
-                project={project}
-                selectedCount={selectedCount}
-                isLast={index === messages.length - 1}
-                requesting={requesting}
-                onToolApproval={async (id, approved) => {
-                  await addToolApprovalResponse({ id, approved });
-                }}
-              />
-            ))}
-          </div>
+          ) : (
+            <div className="mx-auto flex max-w-2xl flex-col gap-5">
+              {messages.map((message, index) => (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  components={markdownComponents}
+                  project={project}
+                  selectedCount={selection.nodes}
+                  isStreaming={requesting && index === messages.length - 1}
+                  onToolApproval={async (id, approved) => {
+                    await addToolApprovalResponse({ id, approved });
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        {showJumpToLatest && (
+          <Button size="sm" variant="outline" className="absolute right-4 bottom-2" onClick={jumpToLatest}>
+            <ArrowDown data-icon="inline-start" />
+            {t("latestMessage")}
+          </Button>
         )}
       </div>
 
-      <div className="border-border/70 border-t p-3">
-        <div className="mb-2 flex items-center gap-2 text-xs">
-          {selectedCount > 0 && (
-            <>
-              <Paperclip className="size-3.5" />
-              <span>已选中 {selectedCount} 个节点</span>
-            </>
-          )}
-          {showTokenCount && (
-            <Tooltip>
-              <TooltipTrigger>
-                <div className="text-muted-foreground flex items-center gap-1.5">
-                  <User className="size-3.5" />
-                  <span>{formatTokenCount(tokenUsage.inputTokens)}</span>
-                  <span></span>
-                  <Bot className="size-3.5" />
-                  <span>{formatTokenCount(tokenUsage.outputTokens)}</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>Token 数量仅供参考，请以服务商实际计费为准</TooltipContent>
-            </Tooltip>
-          )}
-          <div className="flex-1" />
-          <span className="text-muted-foreground">
-            {!sessionLoaded ? "正在加载记忆" : requesting ? "正在思考" : "准备就绪"}
-          </span>
-          {requesting ? (
-            <Button size="sm" variant="outline" className="h-8 cursor-pointer" onClick={stop}>
-              <Square className="size-4" />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              className="h-8 cursor-pointer"
-              onClick={handleUserSend}
-              disabled={!sessionLoaded || !inputValue.trim()}
-            >
-              <Send className="size-4" />
-            </Button>
-          )}
+      <div className="border-border/70 bg-card shrink-0 border-t px-4 pt-3 pb-3">
+        <div className="border-input bg-background focus-within:border-ring rounded-xl border shadow-xs">
+          <Textarea
+            ref={inputRef}
+            aria-label={t("messageInput")}
+            placeholder={t("placeholder")}
+            className="max-h-36 min-h-16 resize-none border-0 px-3 shadow-none focus-visible:ring-0"
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            value={inputValue}
+            disabled={requesting || !sessionLoaded}
+          />
+          <div className="flex min-h-11 items-center justify-between gap-2 px-2 pb-2">
+            <div className="flex min-w-0 items-center gap-2 pl-1">
+              {selection.nodes + selection.edges > 0 && (
+                <Badge variant="secondary" className="min-w-0">
+                  <Paperclip data-icon="inline-start" />
+                  <span className="truncate">
+                    {t("selection", {
+                      items: [
+                        selection.nodes && t("selectedNodes", { count: selection.nodes }),
+                        selection.edges && t("selectedEdges", { count: selection.edges }),
+                      ]
+                        .filter(Boolean)
+                        .join(" · "),
+                    })}
+                  </span>
+                </Badge>
+              )}
+              {requesting && (
+                <span className="text-muted-foreground shrink-0 text-xs" role="status">
+                  {t("generating")}
+                </span>
+              )}
+              {!requesting && selection.nodes + selection.edges === 0 && (
+                <span className="text-muted-foreground text-xs">{t("newlineShortcut")}</span>
+              )}
+            </div>
+            {requesting ? (
+              <Button size="sm" variant="outline" onClick={stop}>
+                <Square data-icon="inline-start" />
+                {t("stop")}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleUserSend} disabled={!sessionLoaded || !inputValue.trim()}>
+                <Send data-icon="inline-start" />
+                {t("send")}
+              </Button>
+            )}
+          </div>
         </div>
-        <Textarea
-          placeholder="让 AI 读取画布、创建节点、连线、整理选区..."
-          className="max-h-36 resize-none"
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          value={inputValue}
-          disabled={requesting || !sessionLoaded}
-        />
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           <Switch
             id={autoApproveMcpToolsId}
             checked={autoApproveMcpTools}
@@ -783,7 +838,6 @@ function AIChatPanel({
             aria-label="自动批准 MCP 工具"
           />
           <label htmlFor={autoApproveMcpToolsId} className="flex cursor-pointer items-center gap-1.5 text-xs">
-            <ShieldCheck className="size-3.5" />
             自动批准 MCP 工具
           </label>
           <Tooltip>
@@ -799,6 +853,26 @@ function AIChatPanel({
               开启后 MCP 工具无需逐次批准；本地 stdio 进程首次启动仍需单独确认。设置从下一次请求开始生效。
             </TooltipContent>
           </Tooltip>
+          {showTokenCount && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs tabular-nums"
+                  aria-label={t("tokenUsage", {
+                    input: formatTokenCount(tokenUsage.inputTokens),
+                    output: formatTokenCount(tokenUsage.outputTokens),
+                  })}
+                >
+                  <User className="size-3.5" />
+                  {formatTokenCount(tokenUsage.inputTokens)}
+                  <Bot className="ml-1 size-3.5" />
+                  {formatTokenCount(tokenUsage.outputTokens)}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("tokenUsageHint")}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
         <ContextWindowUsage
           usage={contextUsage}
@@ -912,228 +986,184 @@ function ContextWindowUsage({
   );
 }
 
-function MessageBubble({
+type ChatMessage = UIMessage<AIMessageMetadata> & { content?: string };
+type ChatPart = ChatMessage["parts"][number];
+type ChatToolPart = Extract<ChatPart, { toolCallId: string }>;
+type ToolApprovalHandler = (id: string, approved: boolean) => Promise<void>;
+
+function isChatToolPart(part: ChatPart): part is ChatToolPart {
+  return isAIToolPart(part);
+}
+
+export function MessageBubble({
   message,
   components,
   project,
   selectedCount,
-  isLast,
-  requesting,
+  isStreaming,
   onToolApproval,
 }: {
-  message: any;
+  message: ChatMessage;
   components?: Record<string, React.ComponentType<any>>;
   project: Project;
   selectedCount: number;
-  isLast: boolean;
-  requesting: boolean;
-  onToolApproval: (id: string, approved: boolean) => Promise<void>;
+  isStreaming: boolean;
+  onToolApproval: ToolApprovalHandler;
 }) {
+  const { t } = useTranslation("aiPanel");
   const isUser = message.role === "user";
   const parts = Array.isArray(message.parts) ? message.parts : [];
-  const bubbles = isUser ? [parts] : splitPartsByStepStart(parts);
+  const texts = parts.filter((part) => part.type === "text").map((part) => part.text);
+  if (!texts.length && message.content) texts.push(String(message.content));
+  const activity = parts.filter((part) => part.type !== "text" && part.type !== "step-start");
+  const pendingTools = activity.filter(isChatToolPart).filter((part) => part.state === "approval-requested");
+  const recordedActivity = activity.filter((part) => !isChatToolPart(part) || part.state !== "approval-requested");
+  const responseText = texts.join("\n");
+  const longResponse = !isUser && (responseText.length > 1000 || responseText.split("\n").length > 12);
+  const body = texts.map((text, index) => (
+    <Streamdown
+      key={index}
+      className="pg-ai-markdown min-w-0"
+      plugins={{ code }}
+      components={components}
+      animated={!isUser && isStreaming}
+      isAnimating={!isUser && isStreaming}
+      caret={!isUser && isStreaming && index === texts.length - 1 && !pendingTools.length ? "circle" : undefined}
+    >
+      {text}
+    </Streamdown>
+  ));
+
+  if (!responseText && !activity.length) return null;
 
   return (
-    <div className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}>
+    <article
+      className={cn("flex items-start gap-2", isUser && "justify-end")}
+      aria-label={t(isUser ? "user" : "assistant")}
+    >
       {!isUser && (
-        <div className="bg-primary/10 text-primary mt-1 flex size-7 shrink-0 items-center justify-center rounded-full">
+        <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-lg">
           <Bot className="size-4" />
-        </div>
+        </span>
       )}
-      <div className={cn("flex max-w-[88%] flex-col gap-2", isUser ? "items-end" : "items-start")}>
-        {bubbles.length > 0 ? (
-          bubbles.map((bubbleParts, bubbleIndex) => (
-            <div
-              key={bubbleIndex}
-              className={cn(
-                "flex max-w-full min-w-0 cursor-text flex-col gap-2 rounded-2xl px-3 py-2 text-sm select-text",
-                isUser
-                  ? "bg-accent text-accent-foreground rounded-br-md"
-                  : "bg-card border-border/70 rounded-bl-md border shadow-sm",
-              )}
-            >
-              {bubbleParts.length > 0 ? (
-                bubbleParts.map((part: any, index: number) => (
-                  <MessagePart
-                    key={part.toolCallId ?? `${part.type}-${bubbleIndex}-${index}`}
-                    part={part}
-                    components={components}
-                    isAnimating={!isUser && requesting}
-                    showCaret={!isUser && isLast}
-                    onToolApproval={onToolApproval}
-                  />
-                ))
-              ) : (
-                <Streamdown
-                  className="pg-ai-markdown"
-                  plugins={{ code }}
-                  components={components}
-                  animated={!isUser}
-                  isAnimating={!isUser && requesting}
-                  caret={!isUser && isLast ? "circle" : undefined}
-                >
-                  {String(message.content ?? "")}
-                </Streamdown>
-              )}
-            </div>
-          ))
+      <div className={cn("flex min-w-0 flex-col items-start gap-2", isUser ? "max-w-[88%] items-end" : "flex-1")}>
+        {recordedActivity.length > 0 && <MessageActivity parts={recordedActivity} isStreaming={isStreaming} />}
+        {longResponse ? (
+          <Collapsible className="group/response border-border bg-card w-full rounded-xl border">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between">
+                {t(isStreaming ? "generatingDetail" : "viewDetail")}
+                <ChevronRight data-icon="inline-end" className="group-data-[state=open]/response:rotate-90" />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent animate={false}>
+              <div className="border-border max-h-[min(55vh,28rem)] overflow-auto overscroll-contain border-t px-3 py-2 text-sm leading-relaxed select-text">
+                {body}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         ) : (
-          <div
-            className={cn(
-              "max-w-full min-w-0 cursor-text rounded-2xl px-3 py-2 text-sm select-text",
-              isUser
-                ? "bg-accent text-accent-foreground rounded-br-md"
-                : "bg-card border-border/70 rounded-bl-md border shadow-sm",
-            )}
-          >
-            <Streamdown
-              className="pg-ai-markdown"
-              plugins={{ code }}
-              components={components}
-              animated={!isUser}
-              isAnimating={!isUser && requesting}
-              caret={!isUser && isLast ? "circle" : undefined}
+          responseText && (
+            <div
+              className={cn(
+                "max-w-full min-w-0 cursor-text text-sm leading-relaxed select-text",
+                isUser && "bg-accent text-accent-foreground rounded-2xl rounded-tr-sm px-3 py-2",
+                !isUser && "pt-1",
+              )}
             >
-              {String(message.content ?? "")}
-            </Streamdown>
-          </div>
+              {body}
+            </div>
+          )
         )}
-        {!isUser && selectedCount === 1 && parts.some((p: any) => p.type === "text") && (!isLast || !requesting) && (
-          <button
-            className="text-muted-foreground hover:text-foreground mt-1 flex cursor-pointer items-center self-end text-xs"
-            onClick={() => createAnswerNode(message, project)}
+        {pendingTools.map((part) => (
+          <ToolApprovalPart
+            key={part.toolCallId}
+            name={getAIToolPartName(part)}
+            approvalId={part.approval.id}
+            input={part.input}
+            onToolApproval={onToolApproval}
+          />
+        ))}
+        {!isUser && selectedCount === 1 && responseText.trim() && !isStreaming && !pendingTools.length && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => createAnswerNode(responseText.trim(), project)}
           >
-            <Plus className="size-3.5" />
-          </button>
+            <Plus data-icon="inline-start" />
+            {t("addToCanvas")}
+          </Button>
         )}
       </div>
-      {isUser && (
-        <div className="bg-accent text-accent-foreground mt-1 flex size-7 shrink-0 items-center justify-center rounded-full">
-          <User className="size-4" />
-        </div>
-      )}
-    </div>
+    </article>
   );
 }
 
-function splitPartsByStepStart(parts: any[]) {
-  const bubbles: any[][] = [];
-  let current: any[] = [];
-
-  for (const part of parts) {
-    if (part.type === "step-start") {
-      if (current.length > 0) {
-        bubbles.push(current);
-        current = [];
-      }
-      continue;
-    }
-    current.push(part);
-  }
-
-  if (current.length > 0) {
-    bubbles.push(current);
-  }
-
-  return bubbles;
-}
-
-function MessagePart({
-  part,
-  components,
-  isAnimating,
-  showCaret,
-  onToolApproval,
-}: {
-  part: any;
-  components?: Record<string, React.ComponentType<any>>;
-  isAnimating?: boolean;
-  showCaret?: boolean;
-  onToolApproval: (id: string, approved: boolean) => Promise<void>;
-}) {
-  if (part.type === "text") {
-    return (
-      <Streamdown
-        className="pg-ai-markdown"
-        plugins={{ code }}
-        components={components}
-        animated={isAnimating}
-        isAnimating={isAnimating}
-        caret={showCaret ? "circle" : undefined}
-      >
-        {part.text ?? ""}
-      </Streamdown>
-    );
-  }
-  if (part.type === "reasoning") {
-    return <ReasoningPart part={part} />;
-  }
-  if (isAIToolPart(part)) {
-    return <ToolPart part={part} onToolApproval={onToolApproval} />;
-  }
+function MessageActivity({ parts, isStreaming }: { parts: ChatPart[]; isStreaming: boolean }) {
+  const { t } = useTranslation("aiPanel");
+  const toolParts = parts.filter(isChatToolPart);
+  const failedCount = toolParts.filter((part) => part.state === "output-error").length;
   return (
-    <pre className="text-muted-foreground overflow-auto text-xs">unknown part: {JSON.stringify(part, null, 2)}</pre>
-  );
-}
-
-function ReasoningPart({ part }: { part: any }) {
-  const streaming = part.state === "streaming";
-  const [open, setOpen] = useState(streaming);
-  const userToggled = useRef(false);
-  const wasStreaming = useRef(streaming);
-
-  useEffect(() => {
-    // 只在流式结束后自动收起一次，用户手动展开过就不再干预
-    if (wasStreaming.current && !streaming && !userToggled.current) setOpen(false);
-    wasStreaming.current = streaming;
-  }, [streaming]);
-
-  return (
-    <Collapsible
-      open={open}
-      onOpenChange={(next) => {
-        userToggled.current = true;
-        setOpen(next);
-      }}
-      className="group/reasoning min-w-0 self-stretch"
-    >
-      <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-        <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]/reasoning:rotate-90" />
-        <span>{streaming ? "思考中" : "思考过程"}</span>
+    <Collapsible className="group/activity bg-muted/40 border-border/70 w-full rounded-xl border">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="text-muted-foreground w-full justify-start text-xs">
+          <Sparkles data-icon="inline-start" />
+          {t(isStreaming ? "activityInProgress" : "activity")}
+          <span className="ml-auto truncate font-normal">
+            {toolParts.length > 0 && t("toolCalls", { count: toolParts.length })}
+            {failedCount > 0 && (
+              <span className="text-destructive"> · {t("toolFailures", { count: failedCount })}</span>
+            )}
+          </span>
+          <ChevronRight data-icon="inline-end" className="group-data-[state=open]/activity:rotate-90" />
+        </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="animate-none!">
-        <div className="text-muted-foreground mt-1.5 border-l-2 pl-2 text-xs leading-relaxed wrap-anywhere whitespace-pre-wrap">
-          {part.text ?? part.reasoning ?? ""}
+      <CollapsibleContent animate={false}>
+        <div className="border-border/70 flex max-h-64 flex-col gap-2 overflow-auto overscroll-contain border-t p-2">
+          {parts.map((part, index) => {
+            if (isChatToolPart(part)) return <ToolPart key={part.toolCallId} part={part} />;
+            if (part.type === "reasoning") {
+              return (
+                <div
+                  key={index}
+                  className="text-muted-foreground px-2 py-1 text-xs leading-relaxed wrap-anywhere whitespace-pre-wrap select-text"
+                >
+                  {part.text ?? ("reasoning" in part ? String(part.reasoning ?? "") : "")}
+                </div>
+              );
+            }
+            return (
+              <pre key={index} className="overflow-auto text-xs">
+                {JSON.stringify(part, null, 2)}
+              </pre>
+            );
+          })}
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
-function ToolPart({
-  part,
-  onToolApproval,
-}: {
-  part: any;
-  onToolApproval: (id: string, approved: boolean) => Promise<void>;
-}) {
+function ToolPart({ part }: { part: ChatToolPart }) {
+  const { t } = useTranslation("aiPanel");
   const name = getAIToolPartName(part);
   const done = part.state === "output-available";
   const failed = part.state === "output-error";
 
-  if (part.state === "approval-requested") {
-    return <ToolApprovalPart name={name} part={part} onToolApproval={onToolApproval} />;
-  }
-
   return (
-    <Collapsible className="group/collapsible">
-      <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-2 text-xs">
-        {done ? <Check className="size-4" /> : <X className={cn("size-4", failed && "text-destructive")} />}
-        <span>{name}</span>
-        <span>{toolStateText(part.state)}</span>
-        <ChevronRight className="size-3 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+    <Collapsible className="group/tool bg-background/70 min-w-0 shrink-0 rounded-lg">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="text-muted-foreground w-full justify-start text-xs" title={name}>
+          <ChevronRight data-icon="inline-start" className="group-data-[state=open]/tool:rotate-90" />
+          <span className="truncate font-mono">{name}</span>
+          <span className={cn("ml-auto font-normal", failed && "text-destructive")}>
+            {t(`toolStates.${part.state}`, { defaultValue: part.state })}
+          </span>
+          {done && <Check aria-hidden="true" />}
+        </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="bg-muted/60 mt-2 animate-none! rounded-lg px-3 py-2">
+      <CollapsibleContent animate={false} className="px-2 pb-2">
         <Streamdown className="pg-ai-markdown" plugins={{ code }}>
           {`\`\`\`json\n${JSON.stringify({ input: part.input, output: part.output, error: part.errorText }, null, 2)}\n\`\`\``}
         </Streamdown>
@@ -1144,32 +1174,34 @@ function ToolPart({
 
 function ToolApprovalPart({
   name,
-  part,
+  approvalId,
+  input,
   onToolApproval,
 }: {
   name: string;
-  part: any;
-  onToolApproval: (id: string, approved: boolean) => Promise<void>;
+  approvalId: string;
+  input: unknown;
+  onToolApproval: ToolApprovalHandler;
 }) {
+  const { t } = useTranslation("aiPanel");
   const [submitting, setSubmitting] = useState(false);
   const respond = async (approved: boolean) => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      await onToolApproval(part.approval.id, approved);
+      await onToolApproval(approvalId, approved);
     } catch (error) {
-      toast.error(`提交工具审批失败：${error instanceof Error ? error.message : String(error)}`);
+      toast.error(t("approvalError", { message: error instanceof Error ? error.message : String(error) }));
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="text-muted-foreground text-xs">
-        <span className="font-mono">{name}</span> 请求执行
-      </div>
+    <div className="border-border bg-card flex w-full min-w-0 flex-col gap-2 rounded-xl border p-3">
+      <div className="text-xs font-medium">{t("approvalRequired")}</div>
+      <div className="text-muted-foreground font-mono text-xs wrap-anywhere">{name}</div>
       <pre className="bg-muted max-h-48 overflow-auto rounded-md p-2 font-mono text-xs select-text">
-        {JSON.stringify(part.input, null, 2)}
+        {JSON.stringify(input, null, 2)}
       </pre>
       <div className="flex justify-end gap-2">
         <Button
@@ -1179,33 +1211,14 @@ function ToolApprovalPart({
           disabled={submitting}
           onClick={() => void respond(false)}
         >
-          拒绝
+          {t("deny")}
         </Button>
         <Button size="sm" className="h-7 px-2" disabled={submitting} onClick={() => void respond(true)}>
-          允许本次调用
+          {t("allowOnce")}
         </Button>
       </div>
     </div>
   );
-}
-
-function toolStateText(state: string | undefined) {
-  switch (state) {
-    case "input-streaming":
-      return "准备参数";
-    case "input-available":
-      return "执行中";
-    case "approval-requested":
-      return "等待批准";
-    case "approval-responded":
-      return "已处理批准";
-    case "output-available":
-      return "完成";
-    case "output-error":
-      return "失败";
-    default:
-      return state ?? "";
-  }
 }
 
 AIWindow.open = () => {

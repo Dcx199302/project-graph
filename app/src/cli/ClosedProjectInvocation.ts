@@ -121,6 +121,11 @@ const closedProjectServices = {
     exportName: "AutoLayout",
     load: () => import("@/core/service/controlService/autoLayoutEngine/mainTick"),
   },
+  layoutManager: {
+    moduleId: "/src/core/stage/stageManager/concreteMethods/LayoutManager.tsx",
+    exportName: "LayoutManager",
+    load: () => import("@/core/stage/stageManager/concreteMethods/LayoutManager"),
+  },
   fastTreeLayout: {
     moduleId: "/src/core/service/controlService/autoLayoutEngine/autoLayoutFastTreeMode.tsx",
     exportName: "AutoLayoutFastTree",
@@ -156,7 +161,7 @@ const closedProjectCapabilityServices: Partial<
   ],
   text: [closedProjectServices.text, closedProjectServices.syncAssociation],
   graph: [closedProjectServices.graph],
-  layout: [closedProjectServices.entityMove, closedProjectServices.layout],
+  layout: [closedProjectServices.entityMove, closedProjectServices.layout, closedProjectServices.layoutManager],
   "tree-import": [
     closedProjectServices.entityMove,
     closedProjectServices.fastTreeLayout,
@@ -197,8 +202,9 @@ function createClosedProject(
   project.references = parsed.references;
   project.metadata = parsed.metadata;
   project.readme = parsed.readme;
-  project.stage = deserialize(parsed.serializedStageObjects, project);
+  // 分组反序列化时就会通过舞台服务查询连线，随后再按完整舞台重算边界。
   project.loadService(StageManager);
+  project.stage = deserialize(parsed.serializedStageObjects, project);
   project.stageManager.updateReferences();
   project.projectState = ProjectState.Saved;
   return {

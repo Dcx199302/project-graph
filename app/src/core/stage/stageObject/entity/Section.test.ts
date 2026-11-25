@@ -9,12 +9,22 @@ vi.mock("@/core/stage/stageObject/abstract/StageEntity", () => ({ Entity: class 
 vi.mock("@/core/stage/stageObject/association/MutiTargetUndirectedEdge", () => ({
   MultiTargetUndirectedEdge: class {},
 }));
-vi.mock("@/utils/font", () => ({ getTextSize: () => new Vector(50, 24) }));
+vi.mock("@/utils/font", () => ({
+  getMultiLineTextSize: (text: string) => new Vector(50, 24 * text.split("\n").length),
+}));
 import { Section } from "./Section";
 import { MultiTargetUndirectedEdge } from "../association/MutiTargetUndirectedEdge";
 import { CollisionBox } from "../collisionBox/collisionBox";
 
 describe("section enclosure bounds", () => {
+  it("reserves enough height for every title line in an empty or collapsed group", () => {
+    const section = new Section({} as never, { text: "第一行\n第二行\n第三行\n第四行" });
+
+    expect(section.rectangle.height).toBe(116);
+    section.isCollapsed = true;
+    expect(section.rectangle.height).toBe(116);
+  });
+
   it.each(["convex", "circle"])("includes internal %s outlines but excludes crossing edges", (renderType) => {
     const node = (x: number) => ({
       collisionBox: new CollisionBox([new Rectangle(new Vector(x, 100), new Vector(40, 40))]),

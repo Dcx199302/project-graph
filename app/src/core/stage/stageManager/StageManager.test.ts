@@ -36,7 +36,7 @@ import { PenStroke } from "@/core/stage/stageObject/entity/PenStroke";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import type { Project } from "@/core/Project";
-import { LayoutManager } from "./concreteMethods/LayoutManager";
+import { LayoutManager, looseLayoutScale } from "./concreteMethods/LayoutManager";
 import { NodeAdder } from "./concreteMethods/StageNodeAdder";
 import { DeleteManager } from "./concreteMethods/StageDeleteManager";
 import { EntityMoveManager } from "./concreteMethods/StageEntityMoveManager";
@@ -55,6 +55,7 @@ import { AutoLayoutFastTree } from "@/core/service/controlService/autoLayoutEngi
 import { AutoLayout } from "@/core/service/controlService/autoLayoutEngine/mainTick";
 import { KeyboardOnlyTreeEngine } from "@/core/service/controlService/keyboardOnlyEngine/keyboardOnlyTreeEngine";
 import { AutoAlign } from "./concreteMethods/StageAutoAlignManager";
+import { EntityRenderer } from "@/core/render/canvas2d/entityRenderer/EntityRenderer";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -400,31 +401,19 @@ it.each([Direction.Left, Direction.Down])(
 );
 
 it("fills the square grid by rows by default and transposes it for vertical layout", () => {
-  const nodes = ["a", "b", "c", "d", "e"].map((id) => textNode(id));
-  const moveEntityToUtils = vi.fn<(node: Entity, location: Vector) => void>();
-  const project = { entityMoveManager: { moveEntityToUtils } } as unknown as Project;
+  const project = { sectionMoveDepth: 0, historyManager: { recordStep: vi.fn() } } as unknown as Project;
   const layout = new LayoutManager(project);
   const step = 150 * 1.12 ** 6;
   const at = (x: number, y: number) => ({ x: expect.closeTo(x * step, 8), y: expect.closeTo(y * step, 8) });
+  const layoutPositions = (axis?: "horizontal" | "vertical") => {
+    const nodes = ["a", "b", "c", "d", "e"].map((id) => textNode(id));
+    const moveTo = nodes.map((node) => vi.spyOn(node, "moveTo").mockImplementation(() => {}));
+    layout.layoutToSquare(nodes, axis);
+    return moveTo.map((move) => move.mock.lastCall?.[0]);
+  };
 
-  layout.layoutToSquare(nodes);
-  expect(moveEntityToUtils.mock.calls).toEqual([
-    [nodes[0], at(-1, -0.5)],
-    [nodes[1], at(0, -0.5)],
-    [nodes[2], at(1, -0.5)],
-    [nodes[3], at(-1, 0.5)],
-    [nodes[4], at(0, 0.5)],
-  ]);
-
-  moveEntityToUtils.mockClear();
-  layout.layoutToSquare(nodes, "vertical");
-  expect(moveEntityToUtils.mock.calls).toEqual([
-    [nodes[0], at(-0.5, -1)],
-    [nodes[1], at(-0.5, 0)],
-    [nodes[2], at(-0.5, 1)],
-    [nodes[3], at(0.5, -1)],
-    [nodes[4], at(0.5, 0)],
-  ]);
+  expect(layoutPositions()).toEqual([at(-1, -0.5), at(0, -0.5), at(1, -0.5), at(-1, 0.5), at(0, 0.5)]);
+  expect(layoutPositions("vertical")).toEqual([at(-0.5, -1), at(-0.5, 0), at(-0.5, 1), at(0.5, -1), at(0.5, 0)]);
 });
 
 it("adjusts selected-node spacing around the selection center and stops at the minimum gap", () => {
@@ -508,6 +497,40 @@ function createProjectWithHistory() {
   project.sectionCollisionSolver = new SectionCollisionSolver(project);
   return project;
 }
+
+it("lays out a group without pushing unrelated nodes when entity collision is enabled", () => {
+  const previous = Settings.isEnableEntityCollision;
+  Settings.isEnableEntityCollision = true;
+  try {
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "member" });
+    member.isSelected = true;
+    const group = new Section(project, { text: "group", children: [member] });
+    const peer = new TextNode(project, { text: "peer" });
+    peer.moveTo(new Vector(180, 0));
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    const center = Rectangle.getBoundingRectangle([group.rectangle, peer.rectangle]).center;
+    const cellSize = (Math.max(group.rectangle.width, group.rectangle.height) + 50) * looseLayoutScale;
+    const neighborLocation = center.subtract(new Vector(cellSize / 2, 0));
+    neighbor.moveTo(neighborLocation);
+    project.stage.push(member, group, peer, neighbor);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+    const memberOffset = member.rectangle.location.subtract(group.rectangle.location);
+    const layout = new LayoutManager(project);
+
+    layout.layoutToSquare([group, peer]);
+
+    expect(group.rectangle.isCollideWith(neighbor.rectangle)).toBe(true);
+    expect(neighbor.rectangle.location).toEqual(neighborLocation);
+    expect(member.rectangle.location.distance(group.rectangle.location.add(memberOffset))).toBeCloseTo(0);
+    expect(member.isSelected).toBe(true);
+    project.historyManager.undo();
+    expect(project.historyManager.canUndo).toBe(false);
+  } finally {
+    Settings.isEnableEntityCollision = previous;
+  }
+});
 
 describe("moving connected nodes", () => {
   function chain() {
@@ -758,6 +781,170 @@ it("groups all children of an existing group with one undo and preserves the out
   expect(outer.children).toEqual([nested]);
   expect(nested.children.map((child) => child.uuid)).toEqual(nodes.map((node) => node.uuid));
   expect(project.historyManager.canRedo).toBe(false);
+});
+
+it("keeps a long root node's entire text as the new group title", () => {
+  const project = createProjectWithHistory();
+  const title = "项目分组需要完整保留根节点的标题\n第二行也需要保留";
+  const root = new TextNode(project, { text: title });
+  const child = new TextNode(project, { text: "子节点" });
+  project.stage.push(root, child, LineEdge.fromTwoEntity(project, root, child));
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+
+  const group = project.sectionPackManager.packEntityToSection([root, child]);
+
+  expect(group?.text).toBe(title);
+  expect(group?.titleBarHeight).toBe(74);
+});
+
+it.each(["cover", "top"] as const)("redraws %s group titles at the restored position after undo and redo", (mode) => {
+  const previousMode = Settings.sectionBitTitleRenderType;
+  const previousThreshold = Settings.sectionBigTitleCameraScaleThreshold;
+  Settings.sectionBitTitleRenderType = mode;
+  Settings.sectionBigTitleCameraScaleThreshold = 0.45;
+  try {
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "成员" });
+    const group = new Section(project, { text: "基础", children: [member] });
+    project.stage.push(group, member);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+    project.camera = { currentScale: 0.1 } as Project["camera"];
+    project.renderer = { frameIndex: 0, isOverView: () => false } as unknown as Project["renderer"];
+    const drawTitle = vi.fn<(section: Section) => void>();
+    const drawBackground = vi.fn<(section: Section) => void>();
+    project.sectionRenderer = {
+      renderBackgroundColor: drawBackground,
+      renderBigCoveredTitle: drawTitle,
+      renderTopTitle: drawTitle,
+    } as unknown as Project["sectionRenderer"];
+    const renderer = new EntityRenderer(project);
+    const viewport = new Rectangle(Vector.getZero(), new Vector(1200, 800));
+
+    function expectFrameAt(left: number) {
+      const [currentGroup] = project.stageManager.getSections();
+      expect(currentGroup.rectangle.left).toBe(left);
+      drawBackground.mockClear();
+      drawTitle.mockClear();
+      renderer.renderAllSectionsBackground(viewport);
+      renderer.renderAllSectionsBigTitle(viewport);
+      expect(drawBackground.mock.calls.map(([drawn]) => drawn.rectangle.left)).toEqual([left]);
+      expect(drawTitle.mock.calls.map(([drawn]) => drawn.rectangle.left)).toEqual([left]);
+    }
+
+    const originalLeft = group.rectangle.left;
+    group.move(new Vector(240, 0));
+    project.historyManager.recordStep();
+    expectFrameAt(originalLeft + 240);
+    project.historyManager.undo();
+    expectFrameAt(originalLeft);
+    project.historyManager.redo();
+    expectFrameAt(originalLeft + 240);
+  } finally {
+    Settings.sectionBitTitleRenderType = previousMode;
+    Settings.sectionBigTitleCameraScaleThreshold = previousThreshold;
+  }
+});
+
+describe("new group collisions", () => {
+  const initialEntityCollision = Settings.isEnableEntityCollision;
+  const initialSectionCollision = Settings.isEnableSectionCollision;
+  beforeEach(() => {
+    Settings.isEnableEntityCollision = true;
+    Settings.isEnableSectionCollision = false;
+  });
+  afterEach(() => {
+    Settings.isEnableEntityCollision = initialEntityCollision;
+    Settings.isEnableSectionCollision = initialSectionCollision;
+  });
+
+  it.each([true, false])(
+    "uses the entity collision setting (%s) and records the result in the group step",
+    (enabled) => {
+      Settings.isEnableEntityCollision = enabled;
+      const project = createProjectWithHistory();
+      const member = new TextNode(project, { text: "member" });
+      const neighbor = new TextNode(project, { text: "neighbor" });
+      const before = new Vector(member.rectangle.right + 10, 0);
+      neighbor.moveTo(before);
+      project.stage.push(member, neighbor);
+      project.stageManager.updateReferences();
+      project.historyManager = new HistoryManager(project);
+
+      const group = project.sectionPackManager.packEntityToSection([member])!;
+
+      expect(member.rectangle.location).toEqual(Vector.getZero());
+      expect(group.rectangle.isCollideWith(neighbor.rectangle)).toBe(!enabled);
+      const after = neighbor.rectangle.location.clone();
+      if (enabled) expect(after.x).toBeGreaterThan(before.x);
+      else expect(after).toEqual(before);
+
+      project.historyManager.undo();
+      expect(project.stageManager.getSections()).toHaveLength(0);
+      expect(project.stageManager.get(neighbor.uuid)?.collisionBox.getRectangle().location).toEqual(before);
+      expect(project.historyManager.canUndo).toBe(false);
+      project.historyManager.redo();
+      expect(project.stageManager.get(neighbor.uuid)?.collisionBox.getRectangle().location).toEqual(after);
+    },
+  );
+
+  it("runs group collision independently of entity collision", () => {
+    Settings.isEnableEntityCollision = false;
+    Settings.isEnableSectionCollision = true;
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "member" });
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    const before = member.rectangle.right + 40;
+    neighbor.moveTo(new Vector(before, 0));
+    const sibling = new Section(project, { text: "sibling", children: [neighbor] });
+    project.stage.push(member, neighbor, sibling);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+
+    const group = project.sectionPackManager.packEntityToSection([member])!;
+
+    expect(neighbor.rectangle.left).toBeGreaterThan(before);
+    expect(group.rectangle.isCollideWith(sibling.rectangle)).toBe(false);
+  });
+
+  it("checks the resized parent group when creating a nested group", () => {
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "member" });
+    const parent = new Section(project, { text: "parent", children: [member] });
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    const before = new Vector(0, parent.rectangle.top - neighbor.rectangle.height - 10);
+    neighbor.moveTo(before);
+    project.stage.push(parent, member, neighbor);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+
+    const group = project.sectionPackManager.packEntityToSection([member])!;
+
+    expect(group.parentSection).toBe(parent);
+    expect(member.rectangle.location).toEqual(Vector.getZero());
+    expect(neighbor.rectangle.top).toBeLessThan(before.y);
+    expect(parent.rectangle.isCollideWith(neighbor.rectangle)).toBe(false);
+  });
+
+  it("checks the final bounds of a group created from a selection rectangle", () => {
+    const project = createProjectWithHistory();
+    const rectangle = new Rectangle(new Vector(100, 100), new Vector(100, 100));
+    const shutDown = vi.fn();
+    project.rectangleSelect = { getRectangle: () => rectangle, shutDown } as unknown as Project["rectangleSelect"];
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    neighbor.moveTo(new Vector(215, 130));
+    project.stage.push(neighbor);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+
+    const group = project.sectionPackManager.createSectionFromSelectionRectangle()!;
+
+    expect(group.children).toHaveLength(2);
+    expect(neighbor.rectangle.left).toBeGreaterThan(215);
+    expect(group.rectangle.isCollideWith(neighbor.rectangle)).toBe(false);
+    expect(shutDown).toHaveBeenCalledOnce();
+  });
 });
 
 it("deletes a selected node and a separately selected edge in one step", () => {

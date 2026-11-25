@@ -156,9 +156,11 @@ export class InputElement {
     options: {
       fixedWidth?: number;
       edgeLabel?: (element: HTMLTextAreaElement, resize: () => void) => void;
+      sectionTitle?: boolean;
     } = {},
   ): Promise<string> {
-    const { fixedWidth, edgeLabel } = options;
+    const { fixedWidth, edgeLabel, sectionTitle } = options;
+    const isNodeEditor = !edgeLabel && !sectionTitle;
     return new Promise((resolve) => {
       const textareaElement = document.createElement("textarea");
       textareaElement.value = defaultValue;
@@ -233,10 +235,11 @@ export class InputElement {
       adjustSize();
       edgeLabel?.(textareaElement, adjustSize);
 
-      const onOutsideWheel = () => {
+      const onOutsideWheel = (event: WheelEvent) => {
+        if (sectionTitle && textareaElement.contains(event.target as Node)) return;
         finish();
       };
-      setTimeout(() => {
+      const adjustSizeTimer = setTimeout(() => {
         if (exitOnWheel) {
           document.body.addEventListener("wheel", onOutsideWheel);
         }
@@ -266,6 +269,7 @@ export class InputElement {
       };
       let isFinished = false;
       const cleanup = () => {
+        clearTimeout(adjustSizeTimer);
         document.body.removeEventListener("wheel", onOutsideWheel);
       };
       const finish = (value = textareaElement.value) => {
@@ -319,7 +323,7 @@ export class InputElement {
 
       textareaElement.addEventListener("keydown", (event) => {
         event.stopPropagation();
-        if (!edgeLabel && !event.isComposing && !isComposing && (event.altKey || event.ctrlKey || event.metaKey)) {
+        if (isNodeEditor && !event.isComposing && !isComposing && (event.altKey || event.ctrlKey || event.metaKey)) {
           for (const id of directionalCreateKeyIds) {
             const binding = KeyBindsUI.getUIKeyBind(id);
             const key = binding?.key.trim();
@@ -346,12 +350,12 @@ export class InputElement {
         }
 
         // 动态检测广度生长快捷键（generateNodeTreeWithBroadMode）
-        const broadKeyBind = edgeLabel ? undefined : KeyBindsUI.getUIKeyBind("generateNodeTreeWithBroadMode");
+        const broadKeyBind = isNodeEditor ? KeyBindsUI.getUIKeyBind("generateNodeTreeWithBroadMode") : undefined;
         const isBroadKeySingleKey =
           event.key !== "Enter" && broadKeyBind?.isEnabled && !broadKeyBind.key.trim().includes(" ");
         const isBroadKeyMatch = isBroadKeySingleKey && matchSingleEmacsKey(broadKeyBind!.key.trim(), event);
 
-        const deepKeyBind = edgeLabel ? undefined : KeyBindsUI.getUIKeyBind("generateNodeTreeWithDeepMode");
+        const deepKeyBind = isNodeEditor ? KeyBindsUI.getUIKeyBind("generateNodeTreeWithDeepMode") : undefined;
         const deepKey = deepKeyBind?.key.trim();
         const isDeepKeyMatch =
           deepKeyBind?.isEnabled &&
@@ -377,7 +381,7 @@ export class InputElement {
               this.project.keyboardOnlyTreeEngine.onBroadGenerateNode();
             }
           }
-        } else if (!edgeLabel && event.code === "Backspace") {
+        } else if (isNodeEditor && event.code === "Backspace") {
           // event.preventDefault();  // 不能这样否则就删除不了了。
           if (textareaElement.value === "") {
             if (Settings.textNodeBackspaceDeleteWhenEmpty) {
@@ -444,6 +448,11 @@ export class InputElement {
           event.preventDefault();
           // 使用event.isComposing和自定义isComposing双重检查
           if (!(event.isComposing || isComposing)) {
+            if (sectionTitle) {
+              if (event.shiftKey) breakLine();
+              else finish();
+              return;
+            }
             const enterKeyDetail = getEnterKey(event);
             if (Settings.textNodeExitEditMode === enterKeyDetail) {
               // 用户想退出编辑

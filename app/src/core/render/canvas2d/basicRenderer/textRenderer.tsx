@@ -14,6 +14,7 @@ import { Color, LruCache, Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 
 const TEXT_RENDER_SIZE = 100;
+const MIN_TITLE_LINE_CHARACTERS = 10;
 const sharedMsdfTextAtlasRenderer = new MsdfTextAtlasRenderer();
 
 /**
@@ -225,6 +226,72 @@ export class TextRenderer {
     const size = this.getFontSizeByRectangleSize(text, rectangle, fontFamily, fontWeight).y;
     if (size < minimumFontSize) return;
     this.renderTextFromCenter(text, rectangle.center, size, color, fontFamily, fontWeight);
+  }
+
+  measureMinimumTitleWrapWidth(text: string, fontSize: number): number {
+    const fullWidthLimit = MIN_TITLE_LINE_CHARACTERS * getTextSize("汉", fontSize).x;
+    let minimumWidth = 0;
+    for (const line of text.split("\n")) {
+      const characters = Array.from(line);
+      const lineWidth = getTextSize(line, fontSize).x;
+      // 英文通常更窄，以同等可视宽度容纳更多字符，同时让较宽的短标题也保持单行。
+      const prefix = characters.slice(0, MIN_TITLE_LINE_CHARACTERS).join("");
+      const prefixWidth = getTextSize(prefix, fontSize).x;
+      minimumWidth = Math.max(minimumWidth, Math.min(lineWidth, Math.max(fullWidthLimit, prefixWidth)));
+    }
+    return minimumWidth;
+  }
+
+  renderWrappedTextInRectangle(text: string, rectangle: Rectangle, color: Color, minimumFontSize = 0): void {
+    if (!text.trim()) return;
+
+    text = this.prepareText(text);
+    const width = rectangle.width * 0.9;
+    const height = rectangle.height * 0.9;
+    if (width <= 0 || height <= 0 || height < minimumFontSize) return;
+
+    const lineHeight = 1.15;
+    const minimumWrapWidth = this.measureMinimumTitleWrapWidth(text, TEXT_RENDER_SIZE);
+    const linesAtSize = (size: number) => {
+      if ((minimumWrapWidth * size) / TEXT_RENDER_SIZE > width) return undefined;
+      const lines = this.textToTextArrayWrapCache(text, size, width);
+      if ((1 + (lines.length - 1) * lineHeight) * size > height) return undefined;
+      return lines.every((line) => getTextSize(line, size).x <= width) ? lines : undefined;
+    };
+
+    let size = height;
+    let lines = linesAtSize(size);
+    if (!lines) {
+      size = minimumFontSize;
+      lines = size > 0 ? linesAtSize(size) : undefined;
+      if (size > 0 && !lines) return;
+
+      let upper = height;
+      for (let step = 0; step < 12; step++) {
+        const candidate = (size + upper) / 2;
+        const candidateLines = linesAtSize(candidate);
+        if (candidateLines) {
+          size = candidate;
+          lines = candidateLines;
+        } else {
+          upper = candidate;
+        }
+      }
+    }
+
+    const center = rectangle.center;
+    if (Settings.textIntegerLocationAndSizeRender) {
+      size = Math.floor(size);
+      if (size === 0 || size < minimumFontSize) return;
+      lines = linesAtSize(size);
+    }
+    if (!lines) return;
+
+    const lineOffset = size * lineHeight;
+    const firstLineY = center.y - ((lines.length - 1) * lineOffset) / 2;
+    for (const [index, line] of lines.entries()) {
+      if (line) this.drawTextFromCenter(line, new Vector(center.x, firstLineY + index * lineOffset), size, color);
+    }
   }
 
   private getFontSizeByRectangleSize(

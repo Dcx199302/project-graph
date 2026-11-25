@@ -8,6 +8,50 @@ findWindow:
   useRegex: 使用正則表達式
   invalidRegex: 正則表達式無效
 
+aiPanel:
+  messages: 對話消息
+  messageInput: 消息
+  emptyTitle: 想在畫布上做什麼？
+  suggestions:
+    arrangeSelection:
+      label: 整理選區
+      prompt: 請根據選中節點的關係整理佈局。
+    reviewGraph:
+      label: 梳理畫布關係
+      prompt: 請讀取當前畫布，簡要說明主要節點之間的關係。
+  latestMessage: 最新消息
+  placeholder: 描述要創建的關係，或讓 AI 整理畫布…
+  selection: "已選中 {{items}}"
+  selectedNodes: "{{count}} 個節點"
+  selectedEdges: "{{count}} 條連線"
+  generating: 生成中
+  newlineShortcut: Shift + Enter 換行
+  stop: 停止
+  send: 發送
+  tokenUsage: "會話輸入 {{input}} Token，輸出 {{output}} Token"
+  tokenUsageHint: 會話輸入和輸出 Token 數量，以服務商實際計費為準
+  user: 你
+  assistant: AI 助手
+  generatingDetail: 正在生成詳細回覆
+  viewDetail: 查看詳細回覆
+  addToCanvas: 添加到畫布
+  activityInProgress: 處理中
+  activity: 執行過程
+  toolCalls: "{{count}} 次工具調用"
+  toolFailures: "{{count}} 次失敗"
+  approvalError: "提交工具審批失敗：{{message}}"
+  approvalRequired: 工具調用等待批准
+  deny: 拒絕
+  allowOnce: 允許本次調用
+  toolStates:
+    input-streaming: 準備參數
+    input-available: 執行中
+    approval-requested: 等待批准
+    approval-responded: 審批已處理
+    output-available: 完成
+    output-error: 失敗
+    output-denied: 已拒絕
+
 projectStatus:
   emptyCanvas: 畫布裡沒有節點
   noVisibleNodes: 當前視野內沒有可見節點，點擊按鈕復位

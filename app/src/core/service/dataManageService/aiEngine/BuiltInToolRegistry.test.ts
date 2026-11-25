@@ -18,6 +18,7 @@ const expectedToolNames = [
   "edit_text_node",
   "edit_image_node",
   "auto_layout_dag",
+  "layout_nodes",
   "create_text_node",
   "generate_node_tree_by_text",
   "expand_node_tree_from_node",
@@ -51,7 +52,7 @@ function expectDeepFrozen(value: unknown, seen = new WeakSet<object>()): void {
 }
 
 describe("Built-in Tool Registry catalog", () => {
-  it("exposes the closed, ordered set of 29 built-in tools without loading executors", () => {
+  it("exposes the ordered set of built-in tools without loading executors", () => {
     expect(builtInToolCatalog.map(({ name }) => name)).toEqual(expectedToolNames);
     expect(new Set(expectedToolNames).size).toBe(expectedToolNames.length);
     expect(executorModule.loaded).toBe(false);
@@ -104,7 +105,7 @@ describe("Built-in Tool Registry catalog", () => {
     ).toEqual(["search_and_add_image_node"]);
   });
 
-  it("classifies the complete catalog into 19 closed, 6 live-selection, and 4 live-viewport tools", () => {
+  it("classifies the complete catalog by required project context", () => {
     const namesFor = (projectContext: ReturnType<typeof classifyBuiltInToolProjectContext>) =>
       builtInToolCatalog
         .filter((definition) => classifyBuiltInToolProjectContext(definition) === projectContext)
@@ -118,6 +119,7 @@ describe("Built-in Tool Registry catalog", () => {
       "edit_text_node",
       "edit_image_node",
       "auto_layout_dag",
+      "layout_nodes",
       "expand_node_tree_from_node",
       "search_text_nodes_by_regex",
       "get_children",

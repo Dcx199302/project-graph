@@ -17,17 +17,33 @@ vi.mock("./msdfTextAtlas", () => ({
     drawLine = msdf.drawLine;
   },
 }));
-vi.mock("@/utils/font", () => ({
-  getFontIdentity: () => "font",
-  getTextSize: (text: string, size: number) => new Vector((text.length * size) / 2, size),
-  isBundledCanvasFont: () => msdf.enabled,
-  replaceTextWhenProtect: (text: string) => text,
-  resolveFont: (size: number, family = "sans-serif", weight = "normal") => `${weight} ${size}px ${family}`,
-  setCanvasFont: (ctx: CanvasRenderingContext2D, font: string) => {
-    ctx.font = font;
-  },
-  textToTextArray: (text: string) => text.split("\n"),
-}));
+vi.mock("@/utils/font", () => {
+  const getWidth = (text: string, size: number) =>
+    Array.from(text).reduce((width, character) => width + (/\p{Script=Han}/u.test(character) ? size : size / 2), 0);
+  return {
+    getFontIdentity: () => "font",
+    getTextSize: (text: string, size: number) => new Vector(getWidth(text, size), size),
+    isBundledCanvasFont: () => msdf.enabled,
+    replaceTextWhenProtect: (text: string) => text,
+    resolveFont: (size: number, family = "sans-serif", weight = "normal") => `${weight} ${size}px ${family}`,
+    setCanvasFont: (ctx: CanvasRenderingContext2D, font: string) => {
+      ctx.font = font;
+    },
+    textToTextArray: (text: string, size: number, width: number) =>
+      text.split("\n").flatMap((paragraph) => {
+        const lines: string[] = [];
+        let line = "";
+        for (const character of paragraph) {
+          if (line && getWidth(line + character, size) > width) {
+            lines.push(line);
+            line = "";
+          }
+          line += character;
+        }
+        return [...lines, line];
+      }),
+  };
+});
 import { TextRenderer } from "./textRenderer";
 
 function setup() {
@@ -64,7 +80,7 @@ describe("scaled vector text", () => {
     const { ctx, renderer } = setup();
     renderer.renderTextFromCenter("中文ABC", new Vector(200, 100), size, Color.White, "serif", "bold");
     expect(ctx.font).toBe("bold 100px serif");
-    expect(ctx.translate).toHaveBeenCalledWith(200 - (5 * size) / 4, 100);
+    expect(ctx.translate).toHaveBeenCalledWith(200 - (7 * size) / 4, 100);
     expect(ctx.scale).toHaveBeenCalledWith(size / 100, size / 100);
     expect(ctx.fillText).toHaveBeenCalledWith("中文ABC", 0, 0);
     expect(ctx.save).toHaveBeenCalledOnce();
@@ -124,5 +140,43 @@ describe("scaled vector text", () => {
     ctx.fillText.mockClear();
     renderer.renderTextInRectangle("short", rect, Color.White, undefined, undefined, 6);
     expect(ctx.fillText).toHaveBeenCalledOnce();
+  });
+
+  it("wraps the whole title into centered lines before applying the minimum readable size", () => {
+    const { ctx, renderer } = setup();
+    const rect = new Rectangle(new Vector(20, 20), new Vector(80, 40));
+    const title = "分组完整标题用于检查缩小画布时能否通过自动换行显示全部文字";
+
+    renderer.renderWrappedTextInRectangle(title, rect, Color.White, 6);
+
+    expect(ctx.fillText.mock.calls.length).toBeGreaterThan(1);
+    expect(ctx.fillText.mock.calls.map(([text]) => text).join("")).toBe(title);
+    expect(ctx.fillText.mock.calls[0][0].length).toBeGreaterThanOrEqual(10);
+    const [[, firstCenterY]] = ctx.translate.mock.calls;
+    const [, lastCenterY] = ctx.translate.mock.lastCall!;
+    expect((firstCenterY + lastCenterY) / 2).toBeCloseTo(rect.center.y);
+    expect(ctx.scale.mock.calls[0][0] * 100).toBeGreaterThanOrEqual(6);
+  });
+
+  it.each(["分组标题", "这行标题恰好十个汉字", "Architecture map", "AI 项目结构梳理测试"])(
+    "keeps %s on one line in a tall, narrow overview box",
+    (title) => {
+      const { ctx, renderer } = setup();
+      const rect = new Rectangle(new Vector(20, 20), new Vector(80, 80));
+
+      renderer.renderWrappedTextInRectangle(title, rect, Color.White, 6);
+
+      expect(ctx.fillText).toHaveBeenCalledExactlyOnceWith(title, 0, 0);
+    },
+  );
+
+  it("fits more narrow Latin letters than Han characters before wrapping", () => {
+    const { ctx, renderer } = setup();
+    const rect = new Rectangle(new Vector(20, 20), new Vector(80, 40));
+    const title = "abcdefghijklmnopqrstuvwxyz";
+
+    renderer.renderWrappedTextInRectangle(title, rect, Color.White, 6);
+
+    expect(ctx.fillText.mock.calls.map(([text]) => text)).toEqual(["abcdefghijklmnopqrst", "uvwxyz"]);
   });
 });

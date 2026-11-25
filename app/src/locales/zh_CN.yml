@@ -8,6 +8,50 @@ findWindow:
   useRegex: 使用正则表达式
   invalidRegex: 正则表达式无效
 
+aiPanel:
+  messages: 对话消息
+  messageInput: 消息
+  emptyTitle: 想在画布上做什么？
+  suggestions:
+    arrangeSelection:
+      label: 整理选区
+      prompt: 请根据选中节点的关系整理布局。
+    reviewGraph:
+      label: 梳理画布关系
+      prompt: 请读取当前画布，简要说明主要节点之间的关系。
+  latestMessage: 最新消息
+  placeholder: 描述要创建的关系，或让 AI 整理画布…
+  selection: "已选中 {{items}}"
+  selectedNodes: "{{count}} 个节点"
+  selectedEdges: "{{count}} 条连线"
+  generating: 生成中
+  newlineShortcut: Shift + Enter 换行
+  stop: 停止
+  send: 发送
+  tokenUsage: "会话输入 {{input}} Token，输出 {{output}} Token"
+  tokenUsageHint: 会话输入和输出 Token 数量，以服务商实际计费为准
+  user: 你
+  assistant: AI 助手
+  generatingDetail: 正在生成详细回复
+  viewDetail: 查看详细回复
+  addToCanvas: 添加到画布
+  activityInProgress: 处理中
+  activity: 执行过程
+  toolCalls: "{{count}} 次工具调用"
+  toolFailures: "{{count}} 次失败"
+  approvalError: "提交工具审批失败：{{message}}"
+  approvalRequired: 工具调用等待批准
+  deny: 拒绝
+  allowOnce: 允许本次调用
+  toolStates:
+    input-streaming: 准备参数
+    input-available: 执行中
+    approval-requested: 等待批准
+    approval-responded: 审批已处理
+    output-available: 完成
+    output-error: 失败
+    output-denied: 已拒绝
+
 projectStatus:
   emptyCanvas: 画布里没有节点
   noVisibleNodes: 当前视野内没有可见节点，点击按钮复位

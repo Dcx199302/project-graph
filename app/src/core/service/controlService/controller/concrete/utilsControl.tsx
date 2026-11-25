@@ -449,45 +449,95 @@ export class ControllerUtils {
     }
   }
 
-  editSectionTitle(section: Section) {
+  async editSectionTitle(section: Section) {
+    if (section.isEditingTitle) return;
     if (this.project.sectionMethods.isObjectBeLockedBySection(section)) {
       toast.error("无法编辑已锁定的section");
       return;
     }
+    const isOverview = this.project.sectionMethods.isSectionBigTitleActive(section);
+    const originalTitle = section.text;
+    const cameraScale = this.project.camera.currentScale;
+    const inputViewLocation = this.project.renderer
+      .transformWorld2View(section.rectangle.location.subtract(new Vector(0, section.text === "" ? 50 : 0)))
+      .add(Vector.same(Renderer.NODE_PADDING).multiply(cameraScale));
+    const clientScale = this.project.canvas.viewToClientScale();
+    const stageStyle = this.project.stageStyleManager.currentStyle;
+    const titleWidth = () =>
+      Math.max(1, section.rectangle.width - Renderer.NODE_PADDING * 2) * cameraScale * clientScale.x;
+    let width = titleWidth();
+    let location = this.project.canvas.viewToClient(inputViewLocation);
+    const style: Partial<CSSStyleDeclaration> = {
+      position: "fixed",
+      resize: "none",
+      boxSizing: "border-box",
+      fontSize: `${Renderer.FONT_SIZE * cameraScale * clientScale.x}px`,
+      lineHeight: "1.2",
+      padding: "0",
+      overflowY: "auto",
+      overflowWrap: "anywhere",
+      maxHeight: "30vh",
+      userSelect: "text",
+      borderRadius: `${Renderer.NODE_ROUNDED_RADIUS * cameraScale * clientScale.x}px`,
+      backgroundColor: "transparent",
+      color: stageStyle.StageObjectBorder.toString(),
+      outline: `solid ${2 * cameraScale * clientScale.x}px ${stageStyle.effects.successShadow.toNewAlpha(0.25).toString()}`,
+      marginTop: `${-8 * cameraScale * clientScale.y}px`,
+    };
+
+    if (isOverview) {
+      const sectionRect = this.viewRectangleToClient(this.project.renderer.transformWorld2View(section.rectangle));
+      const canvasRect = this.project.canvas.element.getBoundingClientRect();
+      const left = Math.max(canvasRect.left, 0) + 8;
+      const top = Math.max(canvasRect.top, 0) + 8;
+      const right = Math.min(canvasRect.right, window.innerWidth) - 8;
+      const bottom = Math.min(canvasRect.bottom, window.innerHeight) - 8;
+      width = Math.min(Math.max(220, sectionRect.width), 360, Math.max(1, right - left));
+      const height = Math.min(Math.max(36, originalTitle.split("\n").length * 20 + 12), 144, Math.max(1, bottom - top));
+      const isTopTitle = Settings.sectionBitTitleRenderType === "top";
+      const x = isTopTitle ? sectionRect.left : sectionRect.center.x - width / 2;
+      const y = isTopTitle ? sectionRect.top - height - 4 : sectionRect.center.y - height / 2;
+      location = new Vector(Math.max(left, Math.min(x, right - width)), Math.max(top, Math.min(y, bottom - height)));
+
+      // 大标题可能远大于画布缩放后的普通文字，编辑框需要使用屏幕像素保持可读。
+      Object.assign(style, {
+        height: `${height}px`,
+        fontSize: "16px",
+        padding: "6px 10px",
+        borderRadius: "6px",
+        backgroundColor: stageStyle.Background.toNewAlpha(1).toString(),
+        color: colorInvert(stageStyle.Background).toString(),
+        outline: "2px solid currentColor",
+        marginTop: "0",
+      });
+    }
+    style.left = `${location.x}px`;
+    style.top = `${location.y}px`;
+    style.width = `${width}px`;
+
     this.project.controller.isCameraLocked = true;
     this.project.camera.stopImmediately();
     section.isEditingTitle = true;
-    const inputViewLocation = this.project.renderer
-      .transformWorld2View(section.rectangle.location.subtract(new Vector(0, section.text === "" ? 50 : 0)))
-      .add(Vector.same(Renderer.NODE_PADDING).multiply(this.project.camera.currentScale));
-    const clientScale = this.project.canvas.viewToClientScale();
-    const titleWidth = () =>
-      `${Math.max(1, section.rectangle.size.x - Renderer.NODE_PADDING * 2) * this.project.camera.currentScale * clientScale.x}px`;
-    this.project.inputElement
-      .input(
-        this.project.canvas.viewToClient(inputViewLocation),
-        section.text,
+    this.project.controller.resetCountdownTimer();
+    this.project.loop();
+    try {
+      await this.project.inputElement.textarea(
+        originalTitle,
         (text, element) => {
-          section.rename(text);
-          element.style.width = titleWidth();
+          if (section.text !== text) section.rename(text);
+          if (!isOverview) element.style.width = `${titleWidth()}px`;
         },
-        {
-          position: "fixed",
-          resize: "none",
-          boxSizing: "border-box",
-          width: titleWidth(),
-          fontSize: `${Renderer.FONT_SIZE * this.project.camera.currentScale * clientScale.x}px`,
-          borderRadius: `${Renderer.NODE_ROUNDED_RADIUS * this.project.camera.currentScale * clientScale.x}px`,
-          backgroundColor: "transparent",
-          color: this.project.stageStyleManager.currentStyle.StageObjectBorder.toString(),
-          outline: `solid ${2 * this.project.camera.currentScale * clientScale.x}px ${this.project.stageStyleManager.currentStyle.effects.successShadow.toNewAlpha(0.25).toString()}`,
-          marginTop: `${-8 * this.project.camera.currentScale * clientScale.y}px`,
-        },
-      )
-      .then(() => {
-        section.isEditingTitle = false;
-        this.project.controller.isCameraLocked = false;
-        this.project.historyManager.recordStep();
-      });
+        style,
+        true,
+        true,
+        { fixedWidth: width, sectionTitle: true },
+      );
+    } finally {
+      section.isEditingTitle = false;
+      this.project.controller.isCameraLocked = false;
+      this.project.controller.resetCountdownTimer();
+      this.project.loop();
+    }
+    if (section.text !== originalTitle) this.project.historyManager.recordStep();
   }
 }

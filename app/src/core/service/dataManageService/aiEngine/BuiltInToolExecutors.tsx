@@ -5,12 +5,13 @@ import { ConnectableEntity } from "@/core/stage/stageObject/abstract/Connectable
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import type { StageObject } from "@/core/stage/stageObject/abstract/StageObject";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
+import { looseLayoutScale } from "@/core/stage/stageManager/concreteMethods/LayoutManager";
 import { ImageNode } from "@/core/stage/stageObject/entity/ImageNode";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { Color, Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
-import type { BuiltInToolExecutor } from "./BuiltInToolRegistry";
+import type { BuiltInToolExecutor, NodeLayoutMode } from "./BuiltInToolRegistry";
 import { findFirstImageInChildren } from "./imageNodeFinder";
 import type { ImageOrientation, OpenverseImageCandidate } from "./OpenverseImageSearch";
 import { parseAIRequestHeaders } from "./AIRequestHeaders";
@@ -322,6 +323,57 @@ addExecutor("auto_layout_dag", () => (project, { refs }, references) => {
 
   const result = project.autoLayout.autoLayoutDAG(entities);
   return { success: true, ...result };
+});
+addExecutor("layout_nodes", () => (project, { refs, mode }: { refs: string[]; mode: NodeLayoutMode }, references) => {
+  if (new Set(refs).size !== refs.length) {
+    return { success: false, error: { code: "duplicate_refs", message: "refs 不能包含重复节点引用" } };
+  }
+
+  const nodes: Entity[] = [];
+  for (const ref of refs) {
+    const node = references.resolve(ref, "node");
+    if (!(node instanceof Entity)) {
+      return {
+        success: false,
+        error: { code: "unsupported_node_type", ref, message: "布局只支持画布节点" },
+      };
+    }
+    if (
+      node.nearestLockedAncestorSection ||
+      node.isHiddenBySectionCollapse ||
+      (node instanceof Section && node.locked)
+    ) {
+      return {
+        success: false,
+        error: { code: "unavailable_node", ref, message: "节点已锁定，或位于锁定或折叠的分组内" },
+      };
+    }
+    nodes.push(node);
+  }
+
+  const locations = nodes.map((node) => node.collisionBox.getRectangle().location.clone());
+  const isGrid = mode === "grid_horizontal" || mode === "grid_vertical";
+  if (isGrid) {
+    project.layoutManager.layoutToSquare(nodes, mode === "grid_horizontal" ? "horizontal" : "vertical");
+  } else {
+    const connectableNodes = nodes.filter(
+      (node): node is ConnectableEntity => node instanceof ConnectableEntity && !(node instanceof Section),
+    );
+    if (connectableNodes.length !== nodes.length) {
+      return { success: false, error: { code: "unsupported_node_type", message: "该布局只支持非分组的可连接节点" } };
+    }
+    if (mode === "mind_map") {
+      project.autoLayout.autoLayoutGraph(connectableNodes, "mindMap", looseLayoutScale);
+    } else if (mode === "rectangle") {
+      project.layoutManager.arrangeRectangle(connectableNodes);
+    } else {
+      project.layoutManager.adjustNodeSpacing(connectableNodes, mode === "increase_spacing");
+    }
+  }
+  const movedCount = nodes.filter(
+    (node, index) => !node.collisionBox.getRectangle().location.equals(locations[index]),
+  ).length;
+  return { success: true, mode, movedCount };
 });
 addExecutor("create_text_node", () => (project, { text, color, width, sizeAdjust }, references) => {
   if (width !== undefined && sizeAdjust === "auto") {

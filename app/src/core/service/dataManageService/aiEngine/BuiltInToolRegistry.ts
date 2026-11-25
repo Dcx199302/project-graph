@@ -118,6 +118,16 @@ const edgeRefSchema = z
   .regex(/^e[1-9]\d*$/)
   .describe("当前项目中的连线引用，例如e1");
 
+const nodeLayoutModeSchema = z.enum([
+  "grid_horizontal",
+  "grid_vertical",
+  "mind_map",
+  "rectangle",
+  "increase_spacing",
+  "decrease_spacing",
+]);
+export type NodeLayoutMode = z.infer<typeof nodeLayoutModeSchema>;
+
 const output = Object.freeze({ contract: "existing-handler-result" as const });
 
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
@@ -249,8 +259,23 @@ const definitions: BuiltInToolDefinition[] = [
     persistence: "project",
   }),
   defineTool({
+    name: "layout_nodes",
+    description:
+      "使用画布「布局」菜单的算法整理指定节点。grid_horizontal：横向方阵；grid_vertical：纵向方阵；mind_map：按已有连线生成树图；rectangle：矩形布局；increase_spacing / decrease_spacing：增大或缩小现有间距。方阵也支持分组，其余模式适用于普通可连接节点。请先完成节点和连线，再选择布局。",
+    inputSchema: z.object({
+      refs: z.array(nodeRefSchema).min(2).describe("至少两个需要布局且互不重复的节点项目级引用"),
+      mode: nodeLayoutModeSchema,
+    }),
+    capabilities: ["project", "references", "history", "effects", "layout", "settings"],
+    projectReferences: { reads: true, allocates: false },
+    cancellation: "none",
+    transaction: "non-transactional",
+    persistence: "project",
+  }),
+  defineTool({
     name: "create_text_node",
-    description: "创建 TextNode。节点会插入到当前视野中心；完成连线后使用 auto_layout_dag 整体整理，不要尝试提供坐标。",
+    description:
+      "创建 TextNode。节点由软件插入到当前视野中心；完成节点和连线后，可使用 layout_nodes 或 auto_layout_dag 排布。",
     inputSchema: z.object({
       text: z.string(),
       color: z.array(z.number()).optional().describe("[R,G,B,A]，不填写时使用透明色"),
@@ -492,7 +517,7 @@ const definitions: BuiltInToolDefinition[] = [
   defineTool({
     name: "search_and_add_image_node",
     description:
-      "从 Openverse 搜索开放授权的网络图片，下载后在当前视野中心创建 ImageNode。完成连线后使用 auto_layout_dag 整体整理；工具不返回图片 URL、附件 ID 或坐标。",
+      "从 Openverse 搜索开放授权的网络图片，下载后在当前视野中心创建 ImageNode。完成节点和连线后，可使用 layout_nodes 或 auto_layout_dag 排布；工具不返回图片 URL、附件 ID 或坐标。",
     inputSchema: z.object({
       query: z.string().min(1).max(400).describe("图片搜索关键词，建议包含主体、场景和风格"),
       preferredOrientation: z

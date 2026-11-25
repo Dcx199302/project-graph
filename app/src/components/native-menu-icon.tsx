@@ -18,7 +18,7 @@ export type NativeMenuIconId = keyof typeof icons;
 export async function nativeMenuIcon(id: keyof typeof icons, title: string) {
   const Icon = icons[id];
   const image = new window.Image();
-  image.src = `data:image/svg+xml,${encodeURIComponent(renderToStaticMarkup(<Icon size={16} color="white" strokeWidth={2} />))}`;
+  image.src = `data:image/svg+xml,${encodeURIComponent(renderToStaticMarkup(<Icon size={16} color="black" strokeWidth={2} />))}`;
   await image.decode();
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -29,7 +29,7 @@ export async function nativeMenuIcon(id: keyof typeof icons, title: string) {
   canvas.height = 36;
   context.scale(2, 2);
   context.font = font;
-  context.fillStyle = "white";
+  context.fillStyle = "black";
   context.textBaseline = "middle";
   context.drawImage(image, 0, 1, 16, 16);
   context.fillText(title, 22, 9);

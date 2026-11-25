@@ -19,7 +19,7 @@ export class LayoutManager {
     return this.project.stageManager
       .getSelectedEntities()
       .filter(
-        (node) =>
+        (node): node is ConnectableEntity =>
           node instanceof ConnectableEntity &&
           !(node instanceof Section) &&
           !node.nearestLockedAncestorSection &&
@@ -32,7 +32,10 @@ export class LayoutManager {
   }
 
   arrangeSelectedRectangle() {
-    const nodes = this.getSelectedLayoutNodes();
+    this.arrangeRectangle(this.getSelectedLayoutNodes());
+  }
+
+  arrangeRectangle(nodes: ConnectableEntity[]) {
     if (nodes.length < 2) return;
 
     const neighbors = new Map(nodes.map((node) => [node, new Set<ConnectableEntity>()]));
@@ -101,7 +104,11 @@ export class LayoutManager {
   }
 
   adjustSelectedNodeSpacing(increase: boolean) {
-    const items = this.getSelectedLayoutNodes().map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
+    this.adjustNodeSpacing(this.getSelectedLayoutNodes(), increase);
+  }
+
+  adjustNodeSpacing(nodes: ConnectableEntity[], increase: boolean) {
+    const items = nodes.map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
     const rectangles = items.map(({ rect }) => rect);
     const factor = this.getSpacingFactor(rectangles, increase);
     if (factor === 1) return;
@@ -136,14 +143,19 @@ export class LayoutManager {
   }
 
   private applyNodeLayout(moves: { node: Entity; location: Vector }[]) {
-    if (!moves.length) return;
+    const needsMove = ({ node, location }: (typeof moves)[number]) =>
+      !location.equals(node.collisionBox.getRectangle().location);
+    if (!moves.some(needsMove)) return;
 
     const sections = new Set<Section>();
+    const movingSeparately = new Set(moves.map(({ node }) => node));
     this.project.sectionMoveDepth++;
     try {
       for (const { node, location } of moves) {
         for (let section = node.parentSection; section; section = section.parentSection) sections.add(section);
-        node.moveTo(location);
+        if (!needsMove({ node, location })) continue;
+        if (node instanceof Section) node.moveTo(location, movingSeparately);
+        else node.moveTo(location);
       }
     } finally {
       this.project.sectionMoveDepth--;
@@ -410,17 +422,16 @@ export class LayoutManager {
     const startX = centerX - gridWidth / 2;
     const startY = centerY - gridHeight / 2;
 
-    // 将节点排列到网格中
-    entities.forEach((node, index) => {
+    const moves = entities.map((node, index) => {
       const line = Math.floor(index / cols);
       const indexInLine = index % cols;
       const cellCenterX = startX + (vertical ? line : indexInLine) * cellSize + cellSize / 2;
       const cellCenterY = startY + (vertical ? indexInLine : line) * cellSize + cellSize / 2;
       const rect = node.collisionBox.getRectangle();
-      const newX = cellCenterX - rect.size.x / 2;
-      const newY = cellCenterY - rect.size.y / 2;
-      this.project.entityMoveManager.moveEntityToUtils(node, new Vector(newX, newY));
+      const location = new Vector(cellCenterX - rect.width / 2, cellCenterY - rect.height / 2);
+      return { node, location };
     });
+    this.applyNodeLayout(moves.filter(({ node }) => !node.nearestLockedAncestorSection));
   }
   layoutToTightSquare(entities: Entity[]) {
     if (entities.length === 0) return;

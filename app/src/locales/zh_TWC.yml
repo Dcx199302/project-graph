@@ -2,6 +2,50 @@ findWindow:
   useRegex: 使用正規表示式
   invalidRegex: 正規表示式無效
 
+aiPanel:
+  messages: 對話訊息
+  messageInput: 訊息
+  emptyTitle: 想在畫布上做什麼？
+  suggestions:
+    arrangeSelection:
+      label: 整理選取範圍
+      prompt: 請根據選取節點之間的關係調整版面。
+    reviewGraph:
+      label: 查看畫布關係
+      prompt: 請讀取目前的畫布，簡單說明主要節點之間的關係。
+  latestMessage: 最新訊息
+  placeholder: 說明想建立的關係，或請 AI 整理畫布…
+  selection: "已選取 {{items}}"
+  selectedNodes: "{{count}} 個節點"
+  selectedEdges: "{{count}} 條連線"
+  generating: 產生中
+  newlineShortcut: Shift + Enter 換行
+  stop: 停止
+  send: 傳送
+  tokenUsage: "本次對話輸入 {{input}} Token，輸出 {{output}} Token"
+  tokenUsageHint: 對話輸入與輸出的 Token 數量，以模型服務商的實際計費為準
+  user: 你
+  assistant: AI 助理
+  generatingDetail: 正在產生詳細回覆
+  viewDetail: 查看詳細回覆
+  addToCanvas: 加到畫布
+  activityInProgress: 處理中
+  activity: 執行過程
+  toolCalls: "{{count}} 次工具呼叫"
+  toolFailures: "{{count}} 次失敗"
+  approvalError: "送出工具核准時發生錯誤。{{message}}"
+  approvalRequired: 工具呼叫等待核准
+  deny: 拒絕
+  allowOnce: 允許這次呼叫
+  toolStates:
+    input-streaming: 準備參數
+    input-available: 執行中
+    approval-requested: 等待核准
+    approval-responded: 核准已處理
+    output-available: 完成
+    output-error: 失敗
+    output-denied: 已拒絕
+
 projectStatus:
   nodes: "{{count}} 節點"
   edges: "{{count}} 連線"

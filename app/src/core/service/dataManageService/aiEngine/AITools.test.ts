@@ -98,6 +98,46 @@ describe("AI layout tool schemas", () => {
     expect(getBuiltInToolWindowEntries().some((candidate) => candidate.name.includes("placement"))).toBe(false);
   });
 
+  it.each([
+    ["grid_horizontal", "layoutToSquare", ["horizontal"]],
+    ["grid_vertical", "layoutToSquare", ["vertical"]],
+    ["mind_map", "autoLayoutGraph", ["mindMap", expect.any(Number)]],
+    ["rectangle", "arrangeRectangle", []],
+    ["increase_spacing", "adjustNodeSpacing", [true]],
+    ["decrease_spacing", "adjustNodeSpacing", [false]],
+  ] as const)("applies the menu's %s layout to the requested refs", async (mode, method, args) => {
+    const first = createNode("first");
+    const second = createNode("second");
+    const selected = createNode("selected");
+    selected.isSelected = true;
+    const objects = new Map([first, second, selected].map((node) => [node.uuid, node]));
+    const implementations = {
+      layoutToSquare: vi.fn(),
+      autoLayoutGraph: vi.fn(),
+      arrangeRectangle: vi.fn(),
+      adjustNodeSpacing: vi.fn(),
+    };
+    const project = {
+      stageManager: { get: (uuid: string) => objects.get(uuid) },
+      layoutManager: implementations,
+      autoLayout: implementations,
+    };
+    const references = new AIObjectReferenceRegistry(project as never);
+    const tools = createBuiltInToolAgentTools(project as never, references) as unknown as Record<
+      string,
+      { execute: (data: unknown) => Promise<string> }
+    >;
+    const refs = [second, first].map((node) => references.getOrCreateRef(node));
+    expect(getFields(getTool("layout_nodes").parameters)).toEqual(["refs", "mode"]);
+
+    await expect(tools.layout_nodes.execute({ refs: [refs[0], refs[0]], mode })).resolves.toContain("duplicate_refs");
+    expect(implementations[method]).not.toHaveBeenCalled();
+    await expect(tools.layout_nodes.execute({ refs, mode })).resolves.toContain("success: true");
+
+    expect(implementations[method]).toHaveBeenCalledExactlyOnceWith([second, first], ...args);
+    expect(selected.isSelected).toBe(true);
+  });
+
   it("does not expose coordinates on text or image creation and editing tools", () => {
     const createText = getTool("create_text_node");
     const editText = getTool("edit_text_node");

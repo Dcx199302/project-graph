@@ -9,7 +9,6 @@ vi.mock("@/core/render/canvas2d/renderer", () => ({
   Renderer: { FONT_SIZE: 16, NODE_PADDING: 4, NODE_ROUNDED_RADIUS: 12 },
 }));
 vi.mock("@/core/service/Settings", () => ({ Settings: { sectionBigTitleOpacity: 0.5 } }));
-vi.mock("@/utils/font", () => ({ getTextSize: vi.fn() }));
 import { SectionRenderer } from "./SectionRenderer";
 import { Settings } from "@/core/service/Settings";
 
@@ -27,11 +26,11 @@ describe("section overview title detail", () => {
     Settings.sectionBackgroundFillMode = "titleOnly";
     try {
       renderer.renderBackgroundColor({
-        text: "title",
+        text: "first line\nsecond line",
         color: Color.Black,
         rectangle: new Rectangle(new Vector(10, 20), new Vector(800, 400)),
       } as Section);
-      expect(ctx.rect).toHaveBeenCalledWith(10, 20, 80, 2.4000000000000004);
+      expect(ctx.rect).toHaveBeenCalledWith(10, 20, 80, 4);
       expect(ctx.clip).toHaveBeenCalledOnce();
       expect(draw.mock.calls[0][0].size).toEqual(new Vector(80, 40));
       expect(draw.mock.calls[0][4]).toBe(12);
@@ -72,7 +71,7 @@ describe("section overview title detail", () => {
       renderer: { transformWorld2View: (point: Vector) => point },
       sectionMethods: { isSectionBigTitleActive: () => true },
       stageStyleManager: { currentStyle: { Background: Color.Black } },
-      textRenderer: { renderTextInRectangle: draw },
+      textRenderer: { renderWrappedTextInRectangle: draw },
       shapeRenderer: { renderRect: background },
     } as unknown as Project);
     const section = {
@@ -83,14 +82,47 @@ describe("section overview title detail", () => {
       isEditingTitle: false,
     } as Section;
     renderer.renderBigCoveredTitle(section);
-    expect(draw.mock.calls[0][5]).toBe(6);
+    expect(draw.mock.calls[0][3]).toBe(6);
     section.isSelected = true;
     section.rectangle.size = new Vector(10, 10);
     renderer.renderBigCoveredTitle(section);
-    expect(draw.mock.calls[1][5]).toBe(0);
+    expect(draw.mock.calls[1][3]).toBe(0);
     section.isEditingTitle = true;
     renderer.renderBigCoveredTitle(section);
     expect(draw).toHaveBeenCalledTimes(2);
     expect(background).toHaveBeenCalledTimes(3);
+  });
+
+  it("places a wrapped top title above the section and sizes its background for all lines", () => {
+    const draw = vi.fn();
+    const background = vi.fn();
+    const measure = vi.fn(() => new Vector(120, 24));
+    const minimumWrapWidth = vi.fn(() => 120);
+    const rectangle = new Rectangle(new Vector(10, 50), new Vector(200, 100));
+    const renderer = new SectionRenderer({
+      camera: { currentScale: 0.2 },
+      renderer: { transformWorld2View: (point: Vector) => point },
+      sectionMethods: { isSectionBigTitleActive: () => true },
+      stageStyleManager: { currentStyle: { Background: Color.Black, StageObjectBorder: Color.White } },
+      textRenderer: {
+        measureMinimumTitleWrapWidth: minimumWrapWidth,
+        measureMultiLineTextSize: measure,
+        renderMultiLineText: draw,
+      },
+      shapeRenderer: { renderRect: background },
+    } as unknown as Project);
+    const section = {
+      text: "完整的分组标题要显示在框的上方",
+      color: Color.Transparent,
+      rectangle,
+      collisionBox: { getRectangle: () => rectangle },
+    } as Section;
+
+    renderer.renderTopTitle(section);
+
+    expect(minimumWrapWidth).toHaveBeenCalledWith(section.text, 12);
+    expect(measure).toHaveBeenCalledWith(section.text, 12, 120, 1);
+    expect(draw).toHaveBeenCalledWith(section.text, new Vector(10, 26), 12, 120, Color.White, 1);
+    expect(background.mock.calls[0][0].height).toBeGreaterThanOrEqual(24);
   });
 });

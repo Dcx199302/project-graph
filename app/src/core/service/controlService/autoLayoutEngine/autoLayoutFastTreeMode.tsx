@@ -113,12 +113,11 @@ export class AutoLayoutFastTree {
       // ==== 如果当前子树进入了新的分组框（与前一棵子树不在同一个分组框内），
       // 需要额外留出分组框标题栏和 padding 的高度，避免重叠
       const currParentSection = tree.parentSection;
-      const sectionTopOverhead = 80; // 30 padding + 50 title bar
       const sectionBottomOverhead = 30; // bottom padding
       let extraGap = 0;
       if (currParentSection !== prevParentSection) {
         if (currParentSection && currParentSection.text !== "") {
-          extraGap += sectionTopOverhead;
+          extraGap += currParentSection.titleBarHeight + 30;
         }
         if (prevParentSection && prevParentSection.text !== "") {
           extraGap += sectionBottomOverhead;
@@ -176,7 +175,6 @@ export class AutoLayoutFastTree {
     // 若是，则在垂直/水平方向额外留出分组框标题栏和 padding 的空间，避免标题栏遮挡节点。
     // 注意：只在"第一个子节点"所在分组框与根节点不同时才需要额外偏移，
     // 且仅当所有子节点都在同一个分组框内时才整体偏移（否则由 alignTrees 的 extraGap 处理）。
-    const sectionTopOverhead = 80; // 30 padding + 50 title bar
     const firstChildSection = childList[0].parentSection;
     const allInSameSection =
       firstChildSection !== null &&
@@ -185,7 +183,7 @@ export class AutoLayoutFastTree {
       childList.every((c) => c.parentSection === firstChildSection);
     // 仅当子节点群整体在一个有标题的分组框内，且该分组框不是根节点自身所在的分组框时，才加偏移
     const needSectionOffset = allInSameSection && firstChildSection !== rootNode.parentSection;
-    const sectionOffset = needSectionOffset ? sectionTopOverhead : 0;
+    const sectionOffset = needSectionOffset ? firstChildSection.titleBarHeight + 30 : 0;
 
     // 计算子树应该移动到的目标位置（使用边缘距离而不是中心位置）
     let targetLocation: Vector;

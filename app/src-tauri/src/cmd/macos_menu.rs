@@ -38,7 +38,8 @@ pub async fn style_macos_menu_icons(
                 };
                 let image = item.image().ok_or("Menu image is unavailable")?;
                 image.setSize(NSSize::new(style.width, 18.0));
-                image.setTemplate(false);
+                // Let AppKit tint the monochrome label for the current menu bar appearance.
+                image.setTemplate(true);
             }
             Ok::<(), &str>(())
         })();

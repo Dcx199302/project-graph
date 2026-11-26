@@ -80,6 +80,10 @@ canvasToolbar:
   defaultPenColor: Default color
   penColor: "{{color}}"
   mindMapLockedSelection: Select movable nodes
+  layoutError:
+    noEdges: Select at least two connected nodes or their section
+    notTree: Select one tree with a single root and one parent per child
+    changed: The selection or graph changed during layout. Apply the layout again.
   actions:
     createTextNodeFromCameraLocation: Add at center
     createTextNodeFromMouseLocation: Add at cursor
@@ -1598,8 +1602,8 @@ keyBinds:
   resetView:
     title: Fit View
     description: |
-      Fit the selected content. With no selection, fit all content with about 15 pixels of padding around the canvas.
-      Press again to restore the previous position and zoom.
+      Fit the selection first, then switch between the selection and the full canvas.
+      With no selection, fit all content with about 15 pixels of padding. Press again to restore the previous position and zoom.
   restoreCameraState:
     title: Restore View State
     description: |
@@ -1805,6 +1809,15 @@ keyBinds:
       Fill the AI panel with selected text nodes and a preset prompt to summarize the core content.
   mindMapLayout:
     title: Tree diagram
+  tidyTreeLayout:
+    title: Tidy tree layout
+    description: Arrange a tree compactly using the size of each node and keep the root in place.
+  radialTreeLayout:
+    title: Radial tree layout
+    description: Arrange descendants in concentric rings around the root by depth.
+  layeredGraphLayout:
+    title: Layered layout (ELK)
+    description: Arrange workflows and dependencies into layers from left to right.
   rectangleLayout:
     title: Rectangular layout
   createTextNodeFromCameraLocation:

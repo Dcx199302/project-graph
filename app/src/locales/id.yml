@@ -71,6 +71,10 @@ canvasToolbar:
   defaultPenColor: Warna bawaan
   penColor: "{{color}}"
   mindMapLockedSelection: Pilih simpul yang dapat dipindahkan
+  layoutError:
+    noEdges: Pilih setidaknya dua simpul yang terhubung atau bagiannya
+    notTree: Pilih satu pohon dengan satu akar dan satu induk per simpul anak
+    changed: Pilihan atau graf berubah selama penataan. Terapkan tata letak lagi.
   actions:
     createTextNodeFromCameraLocation: Tambah di tengah
     createTextNodeFromMouseLocation: Tambah di kursor
@@ -1923,8 +1927,8 @@ keyBinds:
   resetView:
     title: Sesuaikan Tampilan
     description: |
-      Sesuaikan tampilan dengan konten pilihan. Tanpa pilihan, tampilkan semua konten dengan jarak sekitar 15 piksel dari tepi kanvas.
-      Tekan lagi untuk memulihkan posisi dan zoom sebelumnya.
+      Sesuaikan tampilan dengan pilihan terlebih dahulu, lalu beralih antara pilihan dan tampilan seluruh kanvas.
+      Tanpa pilihan, tampilkan semua konten dengan jarak sekitar 15 piksel dari tepi kanvas. Tekan lagi untuk memulihkan posisi dan zoom sebelumnya.
   restoreCameraState:
     title: Pulihkan Status Tampilan
     description: |
@@ -2167,6 +2171,15 @@ keyBinds:
       Isi panel AI dengan konten node teks yang dipilih dan prompt bawaan untuk meringkas inti konten.
   mindMapLayout:
     title: Diagram pohon
+  tidyTreeLayout:
+    title: Tata letak pohon rapi
+    description: Susun pohon secara ringkas berdasarkan ukuran simpul dan pertahankan posisi akar.
+  radialTreeLayout:
+    title: Tata letak pohon radial
+    description: Susun simpul berdasarkan kedalaman dalam cincin yang mengelilingi akar.
+  layeredGraphLayout:
+    title: Tata letak berlapis (ELK)
+    description: Susun alur kerja dan dependensi dalam lapisan dari kiri ke kanan.
   rectangleLayout:
     title: Tata letak persegi panjang
   createTextNodeFromCameraLocation:

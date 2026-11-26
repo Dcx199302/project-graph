@@ -80,6 +80,10 @@ canvasToolbar:
   defaultPenColor: 默認色
   penColor: "{{color}}"
   mindMapLockedSelection: 請選擇可移動的節點
+  layoutError:
+    noEdges: 請選擇至少兩個有連線的節點，或選中包含這些節點的分組框
+    notTree: 請選擇一棵有唯一根節點、每個子節點只有一個父節點的樹
+    changed: 佈局期間選區或圖形已變化，請重新應用佈局
   actions:
     createTextNodeFromCameraLocation: 居中新建
     createTextNodeFromMouseLocation: 指針新建
@@ -1642,8 +1646,8 @@ keyBinds:
   resetView:
     title: 適應視野
     description: |
-      適應選中內容。沒有選中內容時，適應全部內容並在畫布四周留出約 15 像素。
-      再按一次可恢復適應前的位置和縮放。
+      有選中內容時，先適應選區，再在選區和全局視野之間切換。
+      沒有選中內容時，適應全部內容並在畫布四周留出約 15 像素，再按一次可恢復適應前的位置和縮放。
   restoreCameraState:
     title: 恢復視野狀態
     description: |
@@ -1878,6 +1882,15 @@ keyBinds:
       將選中的文本節點內容填入 AI 面板，並預置提示詞用於總結核心內容
   mindMapLayout:
     title: 樹圖
+  tidyTreeLayout:
+    title: 整潔樹佈局
+    description: 根據節點尺寸緊湊排列樹形結構，保留根節點的位置。
+  radialTreeLayout:
+    title: 放射樹佈局
+    description: 按層級將子節點排在環繞根節點的同心圈上。
+  layeredGraphLayout:
+    title: 分層佈局（ELK）
+    description: 按連線方向從左到右分層，適用於流程圖和依賴圖。
   rectangleLayout:
     title: 矩形佈局
   createTextNodeFromCameraLocation:

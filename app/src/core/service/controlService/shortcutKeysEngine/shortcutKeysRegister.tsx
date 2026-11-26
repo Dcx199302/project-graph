@@ -2160,6 +2160,24 @@ export const allKeyBinds: KeyBindItem[] = [
       project.autoLayout.formatMindMap(entities);
     },
   },
+  ...(
+    [
+      { id: "tidyTreeLayout", mode: "tidyTree", icon: ListTree },
+      { id: "radialTreeLayout", mode: "radialTree", icon: Aperture },
+      { id: "layeredGraphLayout", mode: "layered", icon: Workflow },
+    ] as const
+  ).map(
+    ({ id, mode, icon }): KeyBindItem => ({
+      id,
+      icon,
+      defaultKey: "",
+      when: (project) => project?.layoutManager.canLayoutSelectedGraph() ?? false,
+      onPress: async (project) => {
+        const error = await project?.layoutManager.layoutSelectedGraph(mode);
+        if (error) toast.error(i18next.t(`canvasToolbar:layoutError.${error}`));
+      },
+    }),
+  ),
   {
     id: "rectangleLayout",
     defaultKey: "",

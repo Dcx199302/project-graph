@@ -427,6 +427,9 @@ importers:
       comlink:
         specifier: ^4.4.2
         version: 4.4.2
+      d3-flextree:
+        specifier: ^2.1.2
+        version: 2.1.2
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -436,6 +439,9 @@ importers:
       driver.js:
         specifier: ^1.4.0
         version: 1.6.0
+      elkjs:
+        specifier: 0.11.0
+        version: 0.11.0
       events:
         specifier: ^3.3.0
         version: 3.3.0
@@ -623,6 +629,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      "@types/d3-flextree":
+        specifier: ^2.1.4
+        version: 2.1.4
       "@types/events":
         specifier: ^3.0.3
         version: 3.0.3
@@ -4142,6 +4151,10 @@ packages:
     resolution:
       { integrity: sha512-fTAfNmxSb9SOWNB9IoG5c8Hg6R+AzUHDRlsXsDZsNp6sxAEOP0tkP3gKkNSO/qmHPoBFTxNrjDprVHDQDvo5aA== }
 
+  "@types/d3-flextree@2.1.4":
+    resolution:
+      { integrity: sha512-VcJAeoG51p0RBese55p/OHarbqe9QvQauzCkRAuORT3t9UOa+LzqCpTBMVYxBahyp4vAe1ML3sgeQKRU7Gv+KA== }
+
   "@types/d3-force@3.0.10":
     resolution:
       { integrity: sha512-ZYeSaCF3p73RdOKcjj+swRlZfnYpK1EbaDiYICEEp5Q6sUiqFaFQ9qgoshp5CzIyyb/yD09kD9o2zEltCexlgw== }
@@ -5225,6 +5238,10 @@ packages:
       { integrity: sha512-kpkQIM20n3oLVBKGg6oHrUchHM3xODkTzjMoj7aWQFq5QEM+R6E4WkzT5+tojDY7yjez8KgCBRoj4aEr99Fdqw== }
     engines: { node: ">=12" }
 
+  d3-flextree@2.1.2:
+    resolution:
+      { integrity: sha512-gJiHrx5uTTHq44bjyIb3xpbmmdZcWLYPKeO9EPVOq8EylMFOiH2+9sWqKAiQ4DcFuOZTAxPOQyv0Rnmji/g15A== }
+
   d3-force@3.0.0:
     resolution:
       { integrity: sha512-zxV/SsA+U4yte8051P4ECydjD/S+qeYtnaIyAs9tgHCqfguma/aAQDjo85A9Z6EKhBirHRJHXIgJUlffT4wdLg== }
@@ -5239,6 +5256,10 @@ packages:
     resolution:
       { integrity: sha512-637ln3gXKXOwhalDzinUgY83KzNWZRKbYubaG+fGVuc/dxO64RRljtCTnf5ecMyE1RIdtqpkVcq0IbtU2S8j2Q== }
     engines: { node: ">=12" }
+
+  d3-hierarchy@1.1.9:
+    resolution:
+      { integrity: sha512-j8tPxlqh1srJHAtxfvOUwKNYJkQuBFdM1+JAUfq6xqH5eAqf93L7oG1NVqDa4CpFZNvnNKtCYEUC8KY9yEn9lQ== }
 
   d3-hierarchy@3.1.2:
     resolution:
@@ -5545,6 +5566,10 @@ packages:
   electron-to-chromium@1.5.349:
     resolution:
       { integrity: sha512-QsWVGyRuY07Aqb234QytTfwd5d9AJlfNIQ5wIOl1L+PZDzI9d9+Fn0FRale/QYlFxt/bUnB0/nLd1jFPGxGK1A== }
+
+  elkjs@0.11.0:
+    resolution:
+      { integrity: sha512-u4J8h9mwEDaYMqo0RYJpqNMFDoMK7f+pu4GjcV+N8jIC7TRdORgzkfSjTJemhqONFfH6fBI3wpysgWbhgVWIXw== }
 
   emoji-regex@10.6.0:
     resolution:
@@ -12009,6 +12034,10 @@ snapshots:
     dependencies:
       "@types/d3-dsv": 3.0.7
 
+  "@types/d3-flextree@2.1.4":
+    dependencies:
+      "@types/d3-hierarchy": 3.1.7
+
   "@types/d3-force@3.0.10": {}
 
   "@types/d3-format@3.0.4": {}
@@ -12916,6 +12945,10 @@ snapshots:
     dependencies:
       d3-dsv: 3.0.1
 
+  d3-flextree@2.1.2:
+    dependencies:
+      d3-hierarchy: 1.1.9
+
   d3-force@3.0.0:
     dependencies:
       d3-dispatch: 3.0.1
@@ -12927,6 +12960,8 @@ snapshots:
   d3-geo@3.1.1:
     dependencies:
       d3-array: 3.2.4
+
+  d3-hierarchy@1.1.9: {}
 
   d3-hierarchy@3.1.2: {}
 
@@ -13217,6 +13252,8 @@ snapshots:
   ejs@5.0.1: {}
 
   electron-to-chromium@1.5.349: {}
+
+  elkjs@0.11.0: {}
 
   emoji-regex@10.6.0: {}
 

@@ -66,7 +66,12 @@ export class Camera {
    */
   readonly shakeLocation: Vector = Vector.getZero();
 
-  private fitViewState: { previous: CameraView; fitted: CameraView } | null = null;
+  private fitViewState: {
+    previous: CameraView;
+    fitted: CameraView;
+    selection: ReadonlyMap<string, number>;
+    overview?: CameraView;
+  } | null = null;
 
   // pageup / pagedown 爆炸式移动
 
@@ -333,8 +338,7 @@ export class Camera {
     this.setView(this.getRectangleView(viewRectangle));
   }
 
-  private getSelectedBounds(): Rectangle | undefined {
-    const selected = this.project.stageManager.getSelectedEntities();
+  private getSelectedBounds(selected = this.project.stageManager.getSelectedEntities()): Rectangle | undefined {
     if (selected.length) return Rectangle.getBoundingRectangle(selected.map((e) => e.collisionBox.getRectangle()));
   }
 
@@ -363,26 +367,45 @@ export class Camera {
     this.currentScale = this.targetScale = view.scale;
   }
 
+  private isAtView(view: CameraView) {
+    return this.currentScale === view.scale && this.targetScale === view.scale && this.location.equals(view.location);
+  }
+
   toggleFitView() {
     const { w, h } = this.project.renderer;
     if (w <= 0 || h <= 0) return;
 
-    const selected = this.getSelectedBounds();
-    const clientScale = this.project.canvas.viewToClientScale();
-    const margin = new Vector(15 / Camera.validScale(clientScale.x, 1), 15 / Camera.validScale(clientScale.y, 1));
-    const fitted = selected ? this.getRectangleView(selected) : this.getFullView(margin);
-    const lastFit = this.fitViewState?.fitted;
-    if (
+    const selected = this.project.stageManager.getSelectedEntities();
+    const bounds = this.getSelectedBounds(selected);
+    const getOverview = () => {
+      const clientScale = this.project.canvas.viewToClientScale();
+      const margin = new Vector(15 / Camera.validScale(clientScale.x, 1), 15 / Camera.validScale(clientScale.y, 1));
+      return this.getFullView(margin);
+    };
+    const fitted = bounds ? this.getRectangleView(bounds) : getOverview();
+    const lastFit = this.fitViewState;
+    const sameFit =
       lastFit &&
-      lastFit.scale === fitted.scale &&
-      lastFit.location.equals(fitted.location) &&
-      this.currentScale === lastFit.scale &&
-      this.targetScale === lastFit.scale &&
-      this.location.equals(lastFit.location)
-    ) {
-      this.restoreCameraState();
+      lastFit.fitted.scale === fitted.scale &&
+      lastFit.fitted.location.equals(fitted.location) &&
+      lastFit.selection.size === selected.length &&
+      selected.every((entity) => lastFit.selection.get(entity.uuid) === entity.selectionOrder);
+    if (sameFit && this.isAtView(fitted)) {
+      if (bounds) {
+        lastFit.overview = getOverview();
+        this.setView(lastFit.overview);
+        this.stopImmediately();
+      } else {
+        this.restoreCameraState();
+      }
     } else {
-      this.fitViewState = { previous: { location: this.location.clone(), scale: this.currentScale }, fitted };
+      if (!sameFit || !lastFit.overview || !this.isAtView(lastFit.overview)) {
+        this.fitViewState = {
+          previous: { location: this.location.clone(), scale: this.currentScale },
+          fitted,
+          selection: new Map(selected.map((entity) => [entity.uuid, entity.selectionOrder])),
+        };
+      }
       this.hasResetOnOpen = true;
       this.setView(fitted);
       this.stopImmediately();

@@ -1,4 +1,5 @@
 import { Project, service } from "@/core/Project";
+import type { AdvancedGraphLayout } from "@/core/service/controlService/autoLayoutEngine/advancedGraphLayouts";
 import { getLayoutItem, getLayoutScope } from "@/core/stage/stageManager/basicMethods/sectionLayout";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
@@ -27,12 +28,76 @@ function getMovableLayoutItems<T extends Entity>(entities: T[], scope = getLayou
 
 @service("layoutManager")
 export class LayoutManager {
+  private graphLayoutRun = 0;
+
   constructor(private readonly project: Project) {}
 
   private getSelectedLayoutNodes() {
     return getMovableLayoutItems(
       this.project.stageManager.getSelectedEntities().filter((node) => node instanceof ConnectableEntity),
     );
+  }
+
+  private getSelectedGraphItems() {
+    const selected = this.project.stageManager
+      .getSelectedEntities()
+      .filter((entity) => entity instanceof ConnectableEntity);
+    const section = selected.length === 1 && selected[0] instanceof Section ? selected[0] : undefined;
+    const entities = section?.children.filter((node) => node instanceof ConnectableEntity) ?? selected;
+    const scope = section ?? getLayoutScope(entities);
+    return { nodes: getMovableLayoutItems(entities, scope), scope };
+  }
+
+  canLayoutSelectedGraph() {
+    return this.getSelectedGraphItems().nodes.length >= 2;
+  }
+
+  async layoutSelectedGraph(mode: AdvancedGraphLayout): Promise<"noEdges" | "notTree" | "changed" | undefined> {
+    const run = ++this.graphLayoutRun;
+    const { nodes, scope } = this.getSelectedGraphItems();
+    if (nodes.length < 2) return;
+
+    const nodeSet = new Set(nodes);
+    const skipDashed = mode === "tidyTree" || mode === "radialTree";
+    const getEdges = () => {
+      const edges = new Map<string, { source: string; target: string }>();
+      for (const edge of this.project.stageManager.getEdges()) {
+        if (skipDashed && "lineType" in edge && edge.lineType === "dashed") continue;
+        const source = getLayoutItem(edge.source, scope);
+        const target = getLayoutItem(edge.target, scope);
+        if (!source || !target || source === target || !nodeSet.has(source) || !nodeSet.has(target)) continue;
+        edges.set(`${source.uuid}>${target.uuid}`, { source: source.uuid, target: target.uuid });
+      }
+      return edges;
+    };
+    const edges = getEdges();
+    if (edges.size === 0) return "noEdges";
+    const rectangles = new Map(nodes.map((node) => [node.uuid, node.collisionBox.getRectangle().clone()]));
+    const { computeAdvancedGraphLayout } =
+      await import("@/core/service/controlService/autoLayoutEngine/advancedGraphLayouts");
+    const positions = await computeAdvancedGraphLayout(mode, rectangles, [...edges.values()]);
+    if (run !== this.graphLayoutRun) return;
+    if (!positions) return "notTree";
+
+    const current = this.getSelectedGraphItems();
+    const currentNodes = new Set(current.nodes);
+    const currentEdges = getEdges();
+    if (
+      current.scope !== scope ||
+      currentNodes.size !== nodes.length ||
+      nodes.some((node) => {
+        const before = rectangles.get(node.uuid)!;
+        const rectangle = node.collisionBox.getRectangle();
+        return (
+          !currentNodes.has(node) || !before.location.equals(rectangle.location) || !before.size.equals(rectangle.size)
+        );
+      }) ||
+      currentEdges.size !== edges.size ||
+      [...edges.keys()].some((id) => !currentEdges.has(id))
+    ) {
+      return "changed";
+    }
+    this.applyNodeLayout(nodes.map((node) => ({ node, location: positions.get(node.uuid)! })));
   }
 
   canArrangeSelectedLine() {

@@ -1036,6 +1036,32 @@ it("lays out a group without pushing unrelated nodes when entity collision is en
   }
 });
 
+it("applies tidy tree layout to the contents of a selected section in one undo step", async () => {
+  const project = createProjectWithHistory();
+  const root = new TextNode(project, { text: "Root" });
+  const first = new TextNode(project, { text: "First" });
+  const second = new TextNode(project, { text: "Second" });
+  const outside = new TextNode(project, { text: "Outside" });
+  outside.moveTo(new Vector(-500, 0));
+  const group = new Section(project, { text: "Tree", children: [root, first, second] });
+  const reference = lineEdge([first, second]);
+  reference.lineType = "dashed";
+  project.stage.push(root, first, second, outside, group, lineEdge([root, first]), lineEdge([root, second]), reference);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  group.isSelected = true;
+  const layout = new LayoutManager(project);
+
+  expect(layout.canLayoutSelectedGraph()).toBe(true);
+  await expect(layout.layoutSelectedGraph("tidyTree")).resolves.toBeUndefined();
+  expect(root.rectangle.location).toEqual(new Vector(0, 0));
+  expect(first.rectangle.left).toBeGreaterThan(root.rectangle.right);
+  expect(second.rectangle.top).toBeGreaterThan(first.rectangle.bottom);
+  expect(outside.rectangle.location).toEqual(new Vector(-500, 0));
+  project.historyManager.undo();
+  expect(project.historyManager.canUndo).toBe(false);
+});
+
 describe("moving connected nodes", () => {
   function chain() {
     const project = createProjectWithHistory();

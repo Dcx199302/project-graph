@@ -110,7 +110,7 @@ const categories = [
   {
     id: "layout",
     Icon: LayoutGrid,
-    rows: layoutRows,
+    rows: [...layoutRows, ["tidyTreeLayout", "radialTreeLayout", "layeredGraphLayout"]],
   },
   {
     id: "organize",
@@ -373,7 +373,7 @@ function CanvasTools({ project }: { project: Project }) {
         shortcut={
           id === "create" ? (isMac ? "⌘" : "Ctrl") : modifierMenuList.find((menu) => menu.category === id)?.badge
         }
-        rows={rows}
+        rows={preview?.category === id ? preview.rows : rows}
         shortcutVersion={shortcutVersion}
         project={project}
         boundary={areaRef.current}

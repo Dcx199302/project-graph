@@ -134,8 +134,10 @@
     "cmdk": "^1.1.1",
     "comlink": "^4.4.2",
     "date-fns": "^4.1.0",
+    "d3-flextree": "^2.1.2",
     "decimal.js": "^10.6.0",
     "driver.js": "^1.4.0",
+    "elkjs": "0.11.0",
     "events": "^3.3.0",
     "fuse.js": "^7.3.0",
     "html2canvas-pro": "^2.0.2",
@@ -200,6 +202,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/d3-flextree": "^2.1.4",
     "@types/events": "^3.0.3",
     "@types/mapbox__shelf-pack": "^3.0.6"
   }

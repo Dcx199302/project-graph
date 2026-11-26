@@ -56,7 +56,11 @@ describe("fit view", () => {
     const camera = new Camera({
       renderer: { w: 800, h: 400 },
       canvas: { viewToClientScale: () => new Vector(1, 1) },
-      stageManager: { getSelectedEntities: selected },
+      stageManager: {
+        getSelectedEntities: selected,
+        getCenter: () => Vector.getZero(),
+        getSize: () => new Vector(2000, 1000),
+      },
     } as unknown as Project);
     camera.toggleFitView();
     expect(camera.location).toEqual(bounds.center);
@@ -70,8 +74,43 @@ describe("fit view", () => {
     expect(camera.location).toEqual(nextBounds.center);
     expect(camera.currentScale).toBe(2);
     camera.toggleFitView();
+    expect(camera.location).toEqual(Vector.getZero());
+    camera.toggleFitView();
+    expect(camera.location).toEqual(nextBounds.center);
+    camera.restoreCameraState();
     expect(camera.location).toEqual(moved);
     expect(camera.currentScale).toBe(4);
+  });
+
+  it.each([false, true])("fits a newly selected range from a fitted view (same bounds: %s)", (sameBounds) => {
+    const firstBounds = new Rectangle(new Vector(60, 90), new Vector(200, 100));
+    const secondBounds = sameBounds ? firstBounds : new Rectangle(new Vector(-240, 70), new Vector(300, 160));
+    const selected = vi.fn(() => [
+      { uuid: "first", selectionOrder: 1, collisionBox: { getRectangle: () => firstBounds } },
+    ]);
+    const center = new Vector(400, 200);
+    const camera = new Camera({
+      renderer: { w: 800, h: 400 },
+      canvas: { viewToClientScale: () => new Vector(1, 1) },
+      stageManager: {
+        getSelectedEntities: selected,
+        getCenter: () => center,
+        getSize: () => new Vector(1540, 740),
+      },
+    } as unknown as Project);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(firstBounds.center);
+
+    selected.mockReturnValue([
+      { uuid: "second", selectionOrder: 2, collisionBox: { getRectangle: () => secondBounds } },
+    ]);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(secondBounds.center);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(center);
+    expect(camera.currentScale).toBe(0.5);
+    camera.toggleFitView();
+    expect(camera.location).toEqual(secondBounds.center);
   });
 });
 

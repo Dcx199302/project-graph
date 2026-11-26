@@ -7,6 +7,7 @@ import { ConnectableEntity } from "@/core/stage/stageObject/abstract/Connectable
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { Vector } from "@graphif/data-structures";
+import type { Rectangle } from "@graphif/shapes";
 
 /**
  * 管理节点的位置移动
@@ -21,6 +22,7 @@ export class EntityMoveManager {
   private readonly dragCollisions = {
     entities: new Set<Entity>(),
     sections: new Set<Section>(),
+    sectionBounds: new Map<Section, Rectangle>(),
     moved: new Set<Entity>(),
   };
 
@@ -42,7 +44,7 @@ export class EntityMoveManager {
   }
 
   finishDragging(snap: () => void) {
-    const { moved, entities, sections } = this.dragCollisions;
+    const { moved, entities, sections, sectionBounds } = this.dragCollisions;
     try {
       this.deferDragCollisions(snap);
       for (const entity of moved) {
@@ -52,7 +54,16 @@ export class EntityMoveManager {
       for (const entity of protectedEntities) {
         if (entity.parentSection) protectedEntities.add(entity.parentSection);
       }
-      this.deferDragCollisions(() => Entity.resolveMoveCollisions(this.project, [...entities], protectedEntities));
+      this.deferDragCollisions(() => {
+        Entity.resolveMoveCollisions(this.project, [...entities], protectedEntities);
+        // 内层分组推开同级节点后，外层分组可能继续变大。
+        const resizedSections = [...sectionBounds].sort(([a], [b]) => b.sectionDepth - a.sectionDepth);
+        for (const [section, before] of resizedSections) {
+          if (section.rectangle.isAbsoluteIn(before)) continue;
+          this.project.sectionCollisionSolver.solveEntityOverlaps(section, protectedEntities);
+          sections.add(section);
+        }
+      });
       const visited = new Set<string>();
       for (const section of sections) {
         this.project.sectionCollisionSolver.solveOverlaps(section, visited, protectedEntities);
@@ -61,6 +72,7 @@ export class EntityMoveManager {
       moved.clear();
       entities.clear();
       sections.clear();
+      sectionBounds.clear();
     }
   }
 
@@ -208,17 +220,16 @@ export class EntityMoveManager {
       if (entity.parentSection) {
         this.project.sectionInOutManager.goOutSection([entity], entity.parentSection);
       }
+      this.moveEntityUtils(entity, delta, false);
     } else {
-      this.project.sectionInOutManager.goInSection([entity], targetSection);
+      this.project.sectionInOutManager.goInSection([entity], targetSection, () => {
+        this.moveEntityUtils(entity, delta, false);
+      });
       this.project.effects.addEffect(
-        new RectanglePushInEffect(entity.collisionBox.getRectangle(), targetSection.collisionBox.getRectangle()),
+        new RectanglePushInEffect(beforeMoveRect, targetSection.collisionBox.getRectangle()),
       );
       SoundService.play.entityJumpSoundFile();
     }
-
-    // 让自己移动
-    // entity.move(delta);
-    this.moveEntityUtils(entity, delta, false);
   }
 
   /**

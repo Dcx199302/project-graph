@@ -5,7 +5,6 @@ import { ConnectableEntity } from "@/core/stage/stageObject/abstract/Connectable
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import type { StageObject } from "@/core/stage/stageObject/abstract/StageObject";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
-import { looseLayoutScale } from "@/core/stage/stageManager/concreteMethods/LayoutManager";
 import { ImageNode } from "@/core/stage/stageObject/entity/ImageNode";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
@@ -363,7 +362,7 @@ addExecutor("layout_nodes", () => (project, { refs, mode }: { refs: string[]; mo
       return { success: false, error: { code: "unsupported_node_type", message: "该布局只支持非分组的可连接节点" } };
     }
     if (mode === "mind_map") {
-      project.autoLayout.autoLayoutGraph(connectableNodes, "mindMap", looseLayoutScale);
+      project.autoLayout.autoLayoutGraph(connectableNodes, "mindMap");
     } else if (mode === "rectangle") {
       project.layoutManager.arrangeRectangle(connectableNodes);
     } else {

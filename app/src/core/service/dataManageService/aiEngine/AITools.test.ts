@@ -101,7 +101,7 @@ describe("AI layout tool schemas", () => {
   it.each([
     ["grid_horizontal", "layoutToSquare", ["horizontal"]],
     ["grid_vertical", "layoutToSquare", ["vertical"]],
-    ["mind_map", "autoLayoutGraph", ["mindMap", expect.any(Number)]],
+    ["mind_map", "autoLayoutGraph", ["mindMap"]],
     ["rectangle", "arrangeRectangle", []],
     ["increase_spacing", "adjustNodeSpacing", [true]],
     ["decrease_spacing", "adjustNodeSpacing", [false]],

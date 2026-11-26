@@ -16,6 +16,42 @@ import { Line, Rectangle } from "@graphif/shapes";
 export class SectionCollisionSolver {
   constructor(private readonly project: Project) {}
 
+  getPlacementBounds(section: Section): Map<Section, Rectangle> | undefined {
+    if (!Settings.isEnableEntityCollision && !Settings.isEnableSectionCollision) return;
+    const bounds = new Map<Section, Rectangle>();
+    for (let current: Section | null = section; current; current = current.parentSection) {
+      bounds.set(current, current.collisionBox.getRectangle());
+    }
+    return bounds;
+  }
+
+  solvePlacement(section: Section, previousBounds?: ReadonlyMap<Section, Rectangle>): void {
+    if (!Settings.isEnableEntityCollision && !Settings.isEnableSectionCollision) return;
+    if (section.isHiddenBySectionCollapse || section.nearestLockedAncestorSection) return;
+
+    for (let current: Section | null = section; current; current = current.parentSection) {
+      const before = previousBounds?.get(current);
+      if (before && current.rectangle.isAbsoluteIn(before)) continue;
+      this.solveEntityOverlaps(current);
+      this.solveOverlaps(current);
+    }
+  }
+
+  solveEntityOverlaps(section: Section, protectedEntities?: ReadonlySet<Entity>): void {
+    if (
+      !Settings.isEnableEntityCollision ||
+      section.isHiddenBySectionCollapse ||
+      section.nearestLockedAncestorSection
+    ) {
+      return;
+    }
+    const siblings = section.parentSection?.children ?? this.project.stageManager.getTopLevelEntities();
+    const candidates = siblings.filter(
+      (entity) => !entity.isHiddenBySectionCollapse && !(entity instanceof Section && entity.locked),
+    );
+    Entity.resolveMoveCollisions(this.project, [section], protectedEntities, candidates);
+  }
+
   /**
    * 当 grownSection 刚刚通过 adjustLocationAndSize() 增大后，
    * 检测其与同级 Section 的重叠，并将重叠的同级分支推离。
@@ -49,8 +85,7 @@ export class SectionCollisionSolver {
       const siblingRect = sibling.collisionBox.getRectangle();
       if (!grownRect.isCollideWith(siblingRect)) continue;
 
-      const delta = this.computePushDelta(grownRect, siblingRect);
-      if (delta.x === 0 && delta.y === 0) continue;
+      const delta = Entity.getCollisionPushDelta(grownRect, siblingRect);
 
       // 直接平移 sibling 整棵子树，不触发父级更新或碰撞事件链
       this.rawShiftEntityTree(sibling, delta);
@@ -94,29 +129,6 @@ export class SectionCollisionSolver {
     }
 
     return parent.children.filter((child) => child instanceof Section && child !== section) as Section[];
-  }
-
-  /**
-   * 计算将 siblingRect 从 grownRect 推离所需的最小分离向量。
-   * 选择重叠量较小的轴方向推移（与 collideWithOtherEntity 逻辑一致）。
-   */
-  private computePushDelta(grownRect: Rectangle, siblingRect: Rectangle): Vector {
-    const overlapSize = grownRect.getOverlapSize(siblingRect);
-    if (overlapSize.x === 0 && overlapSize.y === 0) {
-      return Vector.getZero();
-    }
-
-    if (overlapSize.x <= overlapSize.y) {
-      // 水平方向推移（重叠宽度更小）
-      const cx = siblingRect.center.x - grownRect.center.x;
-      const dir = cx === 0 ? 1 : Math.sign(cx);
-      return new Vector(overlapSize.x * dir, 0);
-    } else {
-      // 垂直方向推移（重叠高度更小）
-      const cy = siblingRect.center.y - grownRect.center.y;
-      const dir = cy === 0 ? 1 : Math.sign(cy);
-      return new Vector(0, overlapSize.y * dir);
-    }
   }
 
   /**

@@ -150,6 +150,9 @@ export class Section extends ConnectableEntity {
    *   自动调整大小为 标题+padding，位置为 当前碰撞箱外接矩形的左上角
    */
   adjustLocationAndSize() {
+    const deferredBounds = this.project.deferredMoveCollisions?.sectionBounds;
+    if (deferredBounds && !deferredBounds.has(this)) deferredBounds.set(this, this.rectangle);
+
     let rectangle: Rectangle;
     const titleSize = getMultiLineTextSize(this.text, Renderer.FONT_SIZE, 1);
 

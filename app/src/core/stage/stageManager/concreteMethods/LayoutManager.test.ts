@@ -22,7 +22,7 @@ function createNode(x: number, y: number, width: number, height: number) {
   return { node, rect };
 }
 
-it("keeps the hub centered and leaves wide gaps between other nodes on the rectangle", () => {
+it("keeps the hub centered and spaces nodes around the rectangle", () => {
   const hub = createNode(60, 40, 200, 120);
   const outer = [
     createNode(80, 120, 180, 80),
@@ -50,7 +50,7 @@ it("keeps the hub centered and leaves wide gaps between other nodes on the recta
   const halfWidth = Math.max(...offsets.map(({ x }) => Math.abs(x)));
   const halfHeight = Math.max(...offsets.map(({ y }) => Math.abs(y)));
   expect(halfWidth).toBeGreaterThan(halfHeight);
-  expect(halfHeight).toBeCloseTo(246 * 1.12 ** 6);
+  expect(halfHeight).toBeCloseTo(246);
   for (const { x, y } of offsets) {
     expect(Math.min(Math.abs(Math.abs(x) - halfWidth), Math.abs(Math.abs(y) - halfHeight))).toBeCloseTo(0);
   }
@@ -62,7 +62,7 @@ it("keeps the hub centered and leaves wide gaps between other nodes on the recta
         other.top - rect.bottom,
         rect.top - other.bottom,
       );
-      expect(gap).toBeGreaterThan(300);
+      expect(gap).toBeGreaterThanOrEqual(126);
     }
   }
   layout.arrangeSelectedRectangle();

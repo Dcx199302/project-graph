@@ -368,7 +368,7 @@ export class SectionPackManager {
       }
     }
     this.project.stageManager.updateReferences();
-    this.resolveNewSectionCollisions(section);
+    this.project.sectionCollisionSolver.solvePlacement(section);
     this.project.historyManager.recordStep();
 
     return section;
@@ -420,7 +420,7 @@ export class SectionPackManager {
     this.project.stageManager.add(bottomRightPoint, true);
 
     // 将Section添加到舞台
-    this.project.stageManager.add(section);
+    this.project.stageManager.add(section, true);
     // 重命名 Section
     // 此处未生效，以后再排查
     // setTimeout(() => {
@@ -428,8 +428,10 @@ export class SectionPackManager {
     // });
 
     // 将质点放入Section
-    this.project.sectionInOutManager.goInSection([topLeftPoint, bottomRightPoint], section);
-    this.resolveNewSectionCollisions(section);
+    this.project.sectionInOutManager.attachEntityToSection(topLeftPoint, section);
+    this.project.sectionInOutManager.attachEntityToSection(bottomRightPoint, section);
+    this.project.stageManager.updateReferences();
+    this.project.sectionCollisionSolver.solvePlacement(section);
 
     // 清空矩形框
     rectangleSelect.shutDown();
@@ -438,23 +440,6 @@ export class SectionPackManager {
     this.project.historyManager.recordStep();
 
     return section;
-  }
-
-  private resolveNewSectionCollisions(section: Section) {
-    if (!Settings.isEnableEntityCollision && !Settings.isEnableSectionCollision) return;
-    if (section.isHiddenBySectionCollapse || section.nearestLockedAncestorSection) return;
-
-    // 新分组会撑大外层分组，因此每一层都检查自己的同级对象。
-    for (let current: Section | null = section; current; current = current.parentSection) {
-      if (Settings.isEnableEntityCollision) {
-        const siblings = current.parentSection?.children ?? this.project.stageManager.getTopLevelEntities();
-        const candidates = siblings.filter(
-          (entity) => !entity.isHiddenBySectionCollapse && !(entity instanceof Section && entity.locked),
-        );
-        Entity.resolveMoveCollisions(this.project, [current], undefined, candidates);
-      }
-      if (Settings.isEnableSectionCollision) this.project.sectionCollisionSolver.solveOverlaps(current);
-    }
   }
 
   /**

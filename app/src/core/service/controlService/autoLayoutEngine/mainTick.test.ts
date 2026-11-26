@@ -92,7 +92,7 @@ describe("AutoLayout.autoLayoutDAG", () => {
 
 describe("AutoLayout.autoLayoutMindMap", () => {
   it.each(["horizontal", "vertical"] as const)(
-    "expands node center distances while keeping the %s tree root fixed",
+    "uses the base level spacing while keeping the %s tree root fixed",
     (axis) => {
       const horizontal = axis === "horizontal";
       const root = createEntity("root", 0, 0, 100, 50);
@@ -105,15 +105,14 @@ describe("AutoLayout.autoLayoutMindMap", () => {
       }
       const project = createMindMapProject([createEdge(root, child), createEdge(child, leaf)]);
       const layout = new AutoLayout(project);
-      const scale = 1.12 ** 6;
-      layout.autoLayoutGraph([root, child, leaf], "mindMap", scale);
+      layout.autoLayoutGraph([root, child, leaf], "mindMap");
 
       const center = (node: ConnectableEntity) => node.collisionBox.getRectangle().center;
-      const distance = (horizontal ? 286 : 200) * scale;
+      const distance = horizontal ? 286 : 200;
       expect(center(root).distance(center(child))).toBeCloseTo(distance);
       expect(center(child).distance(center(leaf))).toBeCloseTo(distance);
       expect(root.moveTo).not.toHaveBeenCalled();
-      layout.autoLayoutGraph([root, child, leaf], "mindMap", scale);
+      layout.autoLayoutGraph([root, child, leaf], "mindMap");
       expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
     },
   );
@@ -391,16 +390,6 @@ describe("AutoLayout.autoLayoutMindMap", () => {
     expect(layout.autoLayoutMindMap(nodes)).toBe(true);
     expect(nodes.map((node) => rect(node).location)).toEqual(positions);
     expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
-
-    const scale = 1.12 ** 6;
-    const center = rect(root).center;
-    const distances = nodes.map((node) => rect(node).center.distance(center));
-    expect(layout.autoLayoutGraph(nodes, "mindMap", scale)).toBe(true);
-    for (const [index, node] of nodes.entries()) {
-      expect(rect(node).center.distance(center)).toBeCloseTo(distances[index] * scale);
-    }
-    expect(layout.autoLayoutGraph(nodes, "mindMap", scale)).toBe(true);
-    expect(project.historyManager.recordStep).toHaveBeenCalledTimes(2);
   });
 
   it.each(["position", "ports"])("keeps incoming framework nodes on the right based on their %s", (basis) => {

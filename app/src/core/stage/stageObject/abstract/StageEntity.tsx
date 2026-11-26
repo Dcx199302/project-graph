@@ -156,8 +156,14 @@ export abstract class Entity extends StageObject {
       return;
     }
 
-    // 两者相交，需要调整位置
-    // Equal centers still need a nonzero direction; intersection size alone also cannot separate contained rectangles.
+    const moveDelta = Entity.getCollisionPushDelta(selfRectangle, otherRectangle);
+    // 分组框会在子节点移动后重算大小，可能与已经推开的节点再次重叠。
+    Entity.collisionPasses.get(this.project)?.moved.add(other);
+    other.move(moveDelta);
+  }
+
+  static getCollisionPushDelta(selfRectangle: Rectangle, otherRectangle: Rectangle): Vector {
+    // 完全包含时，只按相交宽高推移无法分开，因此直接计算到对侧边界的距离。
     const dx =
       otherRectangle.center.x >= selfRectangle.center.x
         ? selfRectangle.right - otherRectangle.left
@@ -166,10 +172,7 @@ export abstract class Entity extends StageObject {
       otherRectangle.center.y >= selfRectangle.center.y
         ? selfRectangle.bottom - otherRectangle.top
         : selfRectangle.top - otherRectangle.bottom;
-    const moveDelta = Math.abs(dx) < Math.abs(dy) ? new Vector(dx, 0) : new Vector(0, dy);
-    // 分组框会在子节点移动后重算大小，可能与已经推开的节点再次重叠。
-    Entity.collisionPasses.get(this.project)?.moved.add(other);
-    other.move(moveDelta);
+    return Math.abs(dx) < Math.abs(dy) ? new Vector(dx, 0) : new Vector(0, dy);
   }
   /**
    * 是不是因为所在的Section被折叠而隐藏了

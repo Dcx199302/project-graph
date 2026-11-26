@@ -183,10 +183,13 @@ export class ControllerLayerMovingClass extends ControllerClass {
           );
         });
       }
+      this.project.entityMoveManager.moveSelectedEntities(delta);
     } else {
       // 跑到了别的层级之中
 
-      this.project.sectionInOutManager.goInSection(selectedEntities, targetSection);
+      this.project.sectionInOutManager.goInSection(selectedEntities, targetSection, () => {
+        this.project.entityMoveManager.moveSelectedEntities(delta);
+      });
 
       setTimeout(() => {
         for (const entity of selectedEntities) {
@@ -200,8 +203,6 @@ export class ControllerLayerMovingClass extends ControllerClass {
       });
     }
 
-    // 3 移动所有选中的实体 的位置
-    this.project.entityMoveManager.moveSelectedEntities(delta);
     this.project.historyManager.recordStep();
     // 播放跳跃音效
     SoundService.play.entityJumpSoundFile();

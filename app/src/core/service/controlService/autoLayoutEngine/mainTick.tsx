@@ -303,7 +303,7 @@ export class AutoLayout {
     return this.autoLayoutGraph(entities, "mindMap");
   }
 
-  public autoLayoutGraph(entities: ConnectableEntity[], layout: GraphLayout, spacingScale = 1): boolean {
+  public autoLayoutGraph(entities: ConnectableEntity[], layout: GraphLayout): boolean {
     const selectedRoot = layout === "mindMap" && entities.length === 1 ? entities[0] : undefined;
     const byId = new Map(entities.map((entity) => [entity.uuid, entity]));
     let edges: Edge[];
@@ -374,7 +374,6 @@ export class AutoLayout {
       outgoing,
       rectangles,
       fanParents,
-      spacingScale,
       selectedRoot?.uuid,
     );
     const moved = [...placements].filter(([id, rect]) => !rect.location.equals(rectangles.get(id)!.location));
@@ -507,7 +506,6 @@ export class AutoLayout {
     outgoing: Map<string, Set<string>>,
     rectangles: Map<string, Rectangle>,
     fanParents: Map<string, MindMapBranch>,
-    spacingScale: number,
     selectedRoot?: string,
   ): Map<string, Rectangle> {
     const unvisited = new Set(rectangles.keys());
@@ -529,7 +527,6 @@ export class AutoLayout {
 
     const placements = new Map<string, Rectangle>();
     const occupied: Rectangle[] = [];
-    let anchor: Vector | undefined;
     for (const { nodes } of components) {
       let group: Map<string, Rectangle>;
       if (layout === "fishbone") {
@@ -538,7 +535,6 @@ export class AutoLayout {
         const { root, growthDirection } = selectedRoot
           ? { root: nodes[0] }
           : this.getMindMapRootAndDirection(nodes, neighbors, outgoing, incoming);
-        if (spacingScale !== 1) anchor ??= root.rectangle.center;
         group = this.layoutMindMapComponent(root, neighbors, outgoing, rectangles, fanParents, growthDirection);
       }
       const bounds = Rectangle.getBoundingRectangle([...group.values()]);
@@ -546,10 +542,7 @@ export class AutoLayout {
       const gap = layout === "mindMap" ? mindMapSpacing.groups : 64;
       const delta = main ? this.findMindMapGroupShift(bounds, main, occupied, gap) : Vector.getZero();
       for (const [id, rectangle] of group) {
-        const location = rectangle.location.add(delta);
-        const center = rectangle.center.add(delta);
-        const extra = anchor && center.subtract(anchor).multiply(spacingScale - 1);
-        placements.set(id, new Rectangle(extra ? location.add(extra) : location, rectangle.size));
+        placements.set(id, new Rectangle(rectangle.location.add(delta), rectangle.size));
       }
       occupied.push(new Rectangle(bounds.location.add(delta), bounds.size));
     }

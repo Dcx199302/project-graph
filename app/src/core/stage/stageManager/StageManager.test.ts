@@ -36,7 +36,7 @@ import { PenStroke } from "@/core/stage/stageObject/entity/PenStroke";
 import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import type { Project } from "@/core/Project";
-import { LayoutManager, looseLayoutScale } from "./concreteMethods/LayoutManager";
+import { LayoutManager } from "./concreteMethods/LayoutManager";
 import { NodeAdder } from "./concreteMethods/StageNodeAdder";
 import { DeleteManager } from "./concreteMethods/StageDeleteManager";
 import { EntityMoveManager } from "./concreteMethods/StageEntityMoveManager";
@@ -403,7 +403,7 @@ it.each([Direction.Left, Direction.Down])(
 it("fills the square grid by rows by default and transposes it for vertical layout", () => {
   const project = { sectionMoveDepth: 0, historyManager: { recordStep: vi.fn() } } as unknown as Project;
   const layout = new LayoutManager(project);
-  const step = 150 * 1.12 ** 6;
+  const step = 150;
   const at = (x: number, y: number) => ({ x: expect.closeTo(x * step, 8), y: expect.closeTo(y * step, 8) });
   const layoutPositions = (axis?: "horizontal" | "vertical") => {
     const nodes = ["a", "b", "c", "d", "e"].map((id) => textNode(id));
@@ -510,7 +510,7 @@ it("lays out a group without pushing unrelated nodes when entity collision is en
     peer.moveTo(new Vector(180, 0));
     const neighbor = new TextNode(project, { text: "neighbor" });
     const center = Rectangle.getBoundingRectangle([group.rectangle, peer.rectangle]).center;
-    const cellSize = (Math.max(group.rectangle.width, group.rectangle.height) + 50) * looseLayoutScale;
+    const cellSize = Math.max(group.rectangle.width, group.rectangle.height) + 50;
     const neighborLocation = center.subtract(new Vector(cellSize / 2, 0));
     neighbor.moveTo(neighborLocation);
     project.stage.push(member, group, peer, neighbor);
@@ -694,6 +694,35 @@ describe("drag collision timing", () => {
     mover.finishDragging(() => {});
     expect(dragged.rectangle.isCollideWith(second.rectangle)).toBe(true);
     expect(second.rectangle.left).toBe(520);
+  });
+
+  it.each(["node", "section"] as const)("pushes a neighboring %s when the dragged child expands its group", (kind) => {
+    const { project, nodes, mover } = setupNodes([0, 0], [100, 0], [0, 0]);
+    const [anchor, dragged, neighbor] = nodes;
+    const parent = new Section(project, { children: [anchor, dragged] });
+    const gap = kind === "section" ? 40 : 10;
+    const before = new Vector(dragged.rectangle.right + 200 + gap, 0);
+    neighbor.moveTo(before);
+    const obstacle = kind === "section" ? new Section(project, { children: [neighbor] }) : neighbor;
+    project.stage.push(parent);
+    if (obstacle !== neighbor) project.stage.push(obstacle);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+    dragged.isSelected = true;
+
+    mover.dragSelectedEntities(new Vector(200, 0), false);
+    expect(dragged.rectangle.isCollideWith(obstacle.rectangle)).toBe(false);
+    expect(parent.rectangle.isCollideWith(obstacle.rectangle)).toBe(true);
+    expect(neighbor.rectangle.location).toEqual(before);
+    mover.finishDragging(() => {});
+    project.historyManager.recordStep();
+
+    expect(dragged.rectangle.left).toBe(300);
+    expect(neighbor.rectangle.left).toBeGreaterThan(before.x);
+    expect(parent.rectangle.isCollideWith(obstacle.rectangle)).toBe(false);
+    project.historyManager.undo();
+    expect(project.stageManager.get(dragged.uuid)?.collisionBox.getRectangle().left).toBe(100);
+    expect(project.stageManager.get(neighbor.uuid)?.collisionBox.getRectangle().location).toEqual(before);
   });
 
   it.each(["section", "child"] as const)("defers sibling section collisions when dragging a %s", (target) => {
@@ -925,6 +954,75 @@ describe("new group collisions", () => {
     expect(member.rectangle.location).toEqual(Vector.getZero());
     expect(neighbor.rectangle.top).toBeLessThan(before.y);
     expect(parent.rectangle.isCollideWith(neighbor.rectangle)).toBe(false);
+  });
+
+  it.each([true, false])("checks the expanded ancestor after adding a node to a nested group (%s)", (enabled) => {
+    Settings.isEnableEntityCollision = enabled;
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "member" });
+    const inner = new Section(project, { children: [member] });
+    const outer = new Section(project, { children: [inner] });
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    const before = new Vector(outer.rectangle.right + 10, 0);
+    neighbor.moveTo(before);
+    project.stage.push(member, inner, outer, neighbor);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+
+    const uuid = new NodeAdder(project).addConnectPoint(new Vector(inner.rectangle.right - 1, 10), [outer, inner]);
+
+    expect(project.stageManager.get(uuid)).toBe(inner.children[1]);
+    expect(outer.rectangle.isCollideWith(neighbor.rectangle)).toBe(!enabled);
+    if (enabled) expect(neighbor.rectangle.left).toBeGreaterThan(before.x);
+    else expect(neighbor.rectangle.location).toEqual(before);
+    project.historyManager.undo();
+    expect(project.stageManager.get(uuid)).toBeUndefined();
+    expect(project.stageManager.get(neighbor.uuid)?.collisionBox.getRectangle().location).toEqual(before);
+  });
+
+  it("separates a sibling group fully covered by an expanded group with group-only collision", () => {
+    Settings.isEnableEntityCollision = false;
+    Settings.isEnableSectionCollision = true;
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "member" });
+    const added = new TextNode(project, { text: "added" });
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    added.moveTo(new Vector(600, 300));
+    const before = new Vector(300, 120);
+    neighbor.moveTo(before);
+    const group = new Section(project, { children: [member] });
+    const sibling = new Section(project, { children: [neighbor] });
+    project.stage.push(group, member, sibling, neighbor, added);
+    project.stageManager.updateReferences();
+    const expandedBounds = Rectangle.getBoundingRectangle([member.rectangle, added.rectangle], 30);
+    expect(sibling.rectangle.isAbsoluteIn(expandedBounds)).toBe(true);
+
+    project.sectionInOutManager.goInSection([added], group);
+
+    expect(added.parentSection).toBe(group);
+    expect(group.rectangle.isCollideWith(sibling.rectangle)).toBe(false);
+    expect(neighbor.rectangle.location).not.toEqual(before);
+  });
+
+  it("checks the final bounds when a node changes groups and moves into place", () => {
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "member" });
+    const arriving = new TextNode(project, { text: "member" });
+    const neighbor = new TextNode(project, { text: "neighbor" });
+    const before = new Vector(250, 0);
+    neighbor.moveTo(before);
+    arriving.moveTo(new Vector(500, 0));
+    const group = new Section(project, { children: [member] });
+    project.stage.push(group, member, arriving, neighbor);
+    project.stageManager.updateReferences();
+
+    project.sectionInOutManager.goInSection([arriving], group, () => {
+      expect(group.rectangle.isCollideWith(neighbor.rectangle)).toBe(true);
+      arriving.moveTo(member.rectangle.location);
+    });
+
+    expect(group.rectangle.isCollideWith(neighbor.rectangle)).toBe(false);
+    expect(neighbor.rectangle.location).toEqual(before);
   });
 
   it("checks the final bounds of a group created from a selection rectangle", () => {

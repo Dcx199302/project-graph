@@ -8,8 +8,6 @@ import { Rectangle } from "@graphif/shapes";
 import { Section } from "../../stageObject/entity/Section";
 
 const nodeSpacingStep = 1.12;
-// 默认布局按连续六次拉开间距的比例展开。
-export const looseLayoutScale = nodeSpacingStep ** 6;
 
 @service("layoutManager")
 export class LayoutManager {
@@ -57,7 +55,7 @@ export class LayoutManager {
     const slots = Math.ceil(outer.length / 4);
     const halfHeight = Math.max((height * slots) / 2, hub ? height : 0);
     const halfWidth = Math.max((width * slots) / 2, hub ? width : 0, halfHeight * 1.4);
-    const offsets = rectangleOutlineOffsets(outer.length, halfWidth * looseLayoutScale, halfHeight * looseLayoutScale);
+    const offsets = rectangleOutlineOffsets(outer.length, halfWidth, halfHeight);
 
     const placements = outer.map(({ node, rectangle }, index) => ({
       node,
@@ -393,7 +391,7 @@ export class LayoutManager {
     });
 
     const spacing = 50; // 单元格之间的间距
-    const cellSize = (Math.max(maxWidth, maxHeight) + spacing) * looseLayoutScale;
+    const cellSize = Math.max(maxWidth, maxHeight) + spacing;
 
     // 计算最优的行列数，使网格尽可能接近正方形
     const { rows, cols } = getOptimalRowsCols(n);

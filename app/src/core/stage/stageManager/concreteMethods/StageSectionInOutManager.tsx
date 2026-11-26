@@ -13,13 +13,20 @@ import { CollisionBox } from "../../stageObject/collisionBox/collisionBox";
 export class SectionInOutManager {
   constructor(private readonly project: Project) {}
 
-  goInSection(entities: Entity[], section: Section) {
+  goInSection(entities: Entity[], section: Section, moveIntoPlace?: () => void) {
+    const solver = this.project.sectionCollisionSolver;
+    const previousBounds = solver?.getPlacementBounds(section);
+
     let changed = false;
     for (const entity of entities) {
       changed = this.attachEntityToSection(entity, section) || changed;
     }
     if (changed) {
       this.project.stageManager.updateReferences();
+    }
+    moveIntoPlace?.();
+    if (previousBounds && (changed || moveIntoPlace) && this.project.stage.includes(section)) {
+      solver.solvePlacement(section, previousBounds);
     }
   }
 
@@ -31,13 +38,13 @@ export class SectionInOutManager {
    */
   goInSections(entities: Entity[], sections: Section[]) {
     const targetSection = this.pickPreferredSection(sections);
+    if (targetSection) {
+      this.goInSection(entities, targetSection);
+      return;
+    }
     let changed = false;
     for (const entity of entities) {
-      if (targetSection) {
-        changed = this.attachEntityToSection(entity, targetSection) || changed;
-      } else {
-        changed = this.entityDropParent(entity) || changed;
-      }
+      changed = this.entityDropParent(entity) || changed;
     }
     if (changed) {
       this.project.stageManager.updateReferences();

@@ -8,7 +8,6 @@ import { ViewOutlineFlashEffect } from "@/core/service/feedbackService/effectEng
 import { Settings } from "@/core/service/Settings";
 import { Themes } from "@/core/service/Themes";
 import { PenStrokeMethods } from "@/core/stage/stageManager/basicMethods/PenStrokeMethods";
-import { looseLayoutScale } from "@/core/stage/stageManager/concreteMethods/LayoutManager";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { LineEdge } from "@/core/stage/stageObject/association/LineEdge";
@@ -346,7 +345,7 @@ function graphLayoutToolbarAction(layout: GraphLayout): Pick<KeyBindItem, "when"
         toast.error(i18next.t("canvasToolbar:mindMapLockedSelection"));
         return;
       }
-      project.autoLayout.autoLayoutGraph(entities, layout, looseLayoutScale);
+      project.autoLayout.autoLayoutGraph(entities, layout);
     },
   };
 }

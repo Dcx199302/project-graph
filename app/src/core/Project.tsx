@@ -80,6 +80,7 @@ import type { Section } from "@/core/stage/stageObject/entity/Section";
 import { nextProjectIdAtom, store, tabsAtom } from "@/state";
 import { createDefaultMetadata, PrgMetadata } from "@/types/metadata";
 import { deserialize, serialize } from "@graphif/serializer";
+import type { Rectangle } from "@graphif/shapes";
 import { Decoder, Encoder } from "@msgpack/msgpack";
 import { BlobReader, Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { File } from "lucide-react";
@@ -139,7 +140,12 @@ export class Project extends Tab {
   private readonly projectOwnership = new ProjectOwnershipLifecycle(this);
   public stage: StageObject[] = [];
   public sectionMoveDepth = 0;
-  public deferredMoveCollisions?: { entities: Set<Entity>; sections: Set<Section>; moved: Set<Entity> };
+  public deferredMoveCollisions?: {
+    entities: Set<Entity>;
+    sections: Set<Section>;
+    sectionBounds: Map<Section, Rectangle>;
+    moved: Set<Entity>;
+  };
   public tags: string[] = [];
   /**
    * string：UUID

@@ -14,6 +14,8 @@ import { LineEffect } from "../../feedbackService/effectEngine/concrete/LineEffe
 import { RectangleRenderEffect } from "../../feedbackService/effectEngine/concrete/RectangleRenderEffect";
 import { SoundService } from "../../feedbackService/SoundService";
 import { Settings } from "../../Settings";
+import { mindMapChildFontLevel } from "../autoLayoutEngine/mainTick";
+import { mindMapSpacing } from "../autoLayoutEngine/directedLayouts";
 
 /**
  * 专用于Xmind式的树形结构的键盘操作引擎
@@ -312,8 +314,9 @@ export class KeyboardOnlyTreeEngine {
     let outward = 1;
     if (horizontal) {
       const right = direction === "right";
+      const gap = layout === "mindMap" ? mindMapSpacing.horizontalLevels : 120;
       rect.location = new Vector(
-        right ? anchor.right + 120 : anchor.left - 120 - rect.width,
+        right ? anchor.right + gap : anchor.left - gap - rect.width,
         anchor.center.y - rect.height / 2,
       );
       const successors = this.project.graphMethods
@@ -347,9 +350,10 @@ export class KeyboardOnlyTreeEngine {
         rect.location.y = anchor.bottom + 72;
       }
     } else {
+      const gap = layout === "mindMap" ? mindMapSpacing.verticalLevels : 50;
       rect.location = new Vector(
         anchor.center.x - rect.width / 2,
-        direction === "down" ? anchor.bottom + 50 : anchor.top - 50 - rect.height,
+        direction === "down" ? anchor.bottom + gap : anchor.top - gap - rect.height,
       );
     }
 
@@ -419,7 +423,13 @@ export class KeyboardOnlyTreeEngine {
   ): string {
     const rootNode =
       placement?.parent ?? this.project.stageManager.getConnectableEntity().find((node) => node.isSelected);
-    if (!rootNode) return "";
+    if (
+      !rootNode ||
+      rootNode.nearestLockedAncestorSection ||
+      rootNode.isHiddenBySectionCollapse ||
+      (rootNode instanceof Section && rootNode.locked)
+    )
+      return "";
     this.project.camera.clearMoveCommander();
     this.project.camera.speed = Vector.getZero();
     // 确定创建方向：默认向右
@@ -513,7 +523,8 @@ export class KeyboardOnlyTreeEngine {
     }
 
     // 计算新节点的字体大小
-    const newFontScaleLevel = this.calculateNewNodeFontScaleLevel(rootNode, direction);
+    const newFontScaleLevel =
+      layout === "mindMap" ? mindMapChildFontLevel(rootNode) : this.calculateNewNodeFontScaleLevel(rootNode, direction);
 
     // 解析树形生长节点名称模板（仅当没有外部传入文字时使用设置中的模板）
     const resolvedText =
@@ -566,6 +577,9 @@ export class KeyboardOnlyTreeEngine {
       newNode.color = rootNode.color.clone();
     }
     const newEdges = this.connectGrowthNodes(rootNode, newNode, direction, layout);
+    if (layout === "mindMap" && Settings.autoLayoutWhenTreeGenerate) {
+      this.project.autoLayout.formatMindMap([newNode], rootNode, false);
+    }
 
     // 重新排列树形节点
     const rootNodeParents = this.project.graphMethods.getRoots(rootNode, true);
@@ -705,6 +719,9 @@ export class KeyboardOnlyTreeEngine {
         newEdge.graphLayout = edge.graphLayout ?? layout;
       }
       this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(source, newNode));
+    }
+    if (layout === "mindMap" && parent && Settings.autoLayoutWhenTreeGenerate) {
+      this.project.autoLayout.formatMindMap([newNode], parent, false);
     }
     this.project.historyManager.recordStep();
     currentSelectNode.isSelected = false;

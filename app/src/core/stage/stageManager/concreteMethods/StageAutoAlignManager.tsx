@@ -5,6 +5,7 @@ import { RectangleRenderEffect } from "@/core/service/feedbackService/effectEngi
 import { SoundService } from "@/core/service/feedbackService/SoundService";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
+import { Section } from "@/core/stage/stageObject/entity/Section";
 import { showTreeValidationErrors } from "@/utils/treeValidation";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
@@ -437,6 +438,14 @@ export class AutoAlign {
       showTreeValidationErrors(validationResult, "error");
       return;
     }
-    this.project.autoLayoutFastTree.autoLayoutFastTreeMode(selectedRootEntity);
+    const tree = this.project.graphMethods.getSuccessorSet(selectedRootEntity, true, true);
+    if (
+      tree.some((node) => node instanceof Section || node.parentSection) ||
+      this.project.autoLayout.getPreservedLayout(selectedRootEntity) === "mindMap"
+    ) {
+      this.project.autoLayout.formatMindMap(tree);
+    } else {
+      this.project.autoLayoutFastTree.autoLayoutFastTreeMode(selectedRootEntity);
+    }
   }
 }

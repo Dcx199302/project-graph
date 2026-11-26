@@ -1,6 +1,5 @@
 import { Dialog } from "@/components/ui/dialog";
 import { Project, ProjectState } from "@/core/Project";
-import type { GraphLayout } from "@/core/service/controlService/autoLayoutEngine/mainTick";
 import { AssetsRepository } from "@/core/service/AssetsRepository";
 import { MouseLocation } from "@/core/service/controlService/MouseLocation";
 import { ViewFlashEffect } from "@/core/service/feedbackService/effectEngine/concrete/ViewFlashEffect";
@@ -331,24 +330,6 @@ const whenHasSelectedConnectableEntities: KeyBindWhen = (project) =>
 const whenHasMultipleSelectedConnectableEntities: KeyBindWhen = (project) =>
   !!project &&
   project.stageManager.getSelectedEntities().filter((entity) => entity instanceof ConnectableEntity).length > 1;
-
-function graphLayoutToolbarAction(layout: GraphLayout): Pick<KeyBindItem, "when" | "onPress"> {
-  return {
-    when: whenHasMultipleSelectedConnectableEntities,
-    onPress: (project) => {
-      if (!project) return;
-      const entities = project.stageManager
-        .getSelectedEntities()
-        .filter((entity) => entity instanceof ConnectableEntity);
-      if (entities.length < 2) return;
-      if (entities.some((entity) => entity instanceof Section || entity.nearestLockedAncestorSection)) {
-        toast.error(i18next.t("canvasToolbar:mindMapLockedSelection"));
-        return;
-      }
-      project.autoLayout.autoLayoutGraph(entities, layout);
-    },
-  };
-}
 
 const whenHasSingleSelectedConnectableEntity = (project?: Project) =>
   !!project &&
@@ -892,8 +873,9 @@ export const allKeyBinds: KeyBindItem[] = [
   /*------- 边反向 -------*/
   {
     id: "reverseEdges",
-    defaultKey: "C-t",
+    defaultKey: "t",
     icon: Repeat,
+    isToggle: true,
     when: whenHasSelectedLineEdges,
     onPress: (project) => project!.stageManager.reverseSelectedEdges(),
   },
@@ -2157,7 +2139,26 @@ export const allKeyBinds: KeyBindItem[] = [
     id: "mindMapLayout",
     defaultKey: "",
     icon: WandSparkles,
-    ...graphLayoutToolbarAction("mindMap"),
+    when: (project) =>
+      !!project &&
+      (whenHasMultipleSelectedConnectableEntities(project) ||
+        project.stageManager
+          .getSelectedEntities()
+          .some(
+            (node) =>
+              node instanceof ConnectableEntity &&
+              (!(node instanceof Section) || (node.mindMapBranch && !node.isCollapsed && !node.locked)),
+          )),
+    onPress: (project) => {
+      if (!project) return;
+      const entities = project.stageManager.getSelectedEntities().filter((node) => node instanceof ConnectableEntity);
+      if (!entities.length) return;
+      if (entities.some((node) => node.nearestLockedAncestorSection || (node instanceof Section && node.locked))) {
+        toast.error(i18next.t("canvasToolbar:mindMapLockedSelection"));
+        return;
+      }
+      project.autoLayout.formatMindMap(entities);
+    },
   },
   {
     id: "rectangleLayout",

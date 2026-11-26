@@ -277,8 +277,13 @@ export class NodeAdder {
   /**
    * 通过带有缩进格式的文本来增加节点
    */
-  public addNodeTreeByText(text: string, indention: number, diffLocation: Vector = Vector.getZero()): void {
-    this.project.stageImport.addNodeTreeByText(text, indention, diffLocation);
+  public addNodeTreeByText(
+    text: string,
+    indention: number,
+    diffLocation: Vector = Vector.getZero(),
+    mindMap = false,
+  ): void {
+    this.project.stageImport.addNodeTreeByText(text, indention, diffLocation, mindMap);
   }
 
   /**

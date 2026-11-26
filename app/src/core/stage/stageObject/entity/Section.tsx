@@ -34,6 +34,21 @@ export class Section extends ConnectableEntity {
    * 小于多少的情况下，开始渲染大标题
    */
   static bigTitleCameraScale = 0.2;
+  static readonly contentPadding = 36;
+  private static readonly nestedMindMapPadding = [Section.contentPadding, 26, 18];
+  static readonly outerMargin = 12;
+
+  protected override get collisionMargin() {
+    return Section.outerMargin;
+  }
+
+  distanceToBorder(location: Vector): number {
+    const { left, right, top, bottom } = this.rectangle;
+    const x = Math.max(left - location.x, location.x - right);
+    const y = Math.max(top - location.y, location.y - bottom);
+    if (x <= 0 && y <= 0) return -Math.max(x, y);
+    return Math.hypot(Math.max(0, x), Math.max(0, y));
+  }
 
   public get collisionBox(): CollisionBox {
     if (this.isCollapsed) {
@@ -63,6 +78,8 @@ export class Section extends ConnectableEntity {
   text: string;
   @serializable
   children: Entity[];
+  @serializable
+  mindMapBranch?: true;
 
   /** 是否是折叠状态 */
   @serializable
@@ -91,6 +108,7 @@ export class Section extends ConnectableEntity {
       locked = false,
       isCollapsed = false,
       children = [] as Entity[],
+      mindMapBranch = undefined as true | undefined,
       details = [] as Value,
       borderStyle = "solid" as "solid" | "dashed" | "none",
     } = {},
@@ -116,6 +134,7 @@ export class Section extends ConnectableEntity {
     this.isCollapsed = isCollapsed;
     this.details = details;
     this.children = children;
+    this.mindMapBranch = mindMapBranch;
     this.borderStyle = borderStyle;
     // 一定要放在最后
     this.adjustLocationAndSize();
@@ -187,7 +206,10 @@ export class Section extends ConnectableEntity {
         }
       }
       // 调整展开状态
-      rectangle = Rectangle.getBoundingRectangle(bounds, 30);
+      const padding = this.mindMapBranch
+        ? Section.nestedMindMapPadding[Math.min(this.sectionDepth, Section.nestedMindMapPadding.length - 1)]
+        : Section.contentPadding;
+      rectangle = Rectangle.getBoundingRectangle(bounds, padding);
       rectangle.size.x = Math.max(rectangle.size.x, titleSize.x + Renderer.NODE_PADDING * 2);
       // 留白范围在上面调整
       rectangle.location = rectangle.location.subtract(new Vector(0, titleBarHeight));

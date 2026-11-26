@@ -235,6 +235,7 @@ export namespace KeyBindsUI {
     const toolbarGroupShortcutMigrated = (await store.get<boolean>("toolbarGroupShortcutMigrated")) === true;
     const toolbarDragShortcutMigrated = (await store.get<boolean>("toolbarDragShortcutMigrated")) === true;
     const directionalShortcutsMigrated = (await store.get<boolean>("directionalShortcutsMigrated")) === true;
+    const reverseEdgesShortcutMigrated = (await store.get<boolean>("reverseEdgesShortcutMigrated")) === true;
     const previousToolbarKeys = new Map([
       ["packEntityToSection", isMac ? "M-g" : "C-g"],
       ["createTwinTextNode", "y"],
@@ -286,6 +287,7 @@ export namespace KeyBindsUI {
       if (
         (keybind.id === "checkoutLeftMouseToDrawing" && key === "b b b") ||
         (keybind.id === "generateNodeTreeWithBroadMode" && key === "\\") ||
+        (!reverseEdgesShortcutMigrated && keybind.id === "reverseEdges" && key === platformKey("C-t")) ||
         (!toolbarPackShortcutMigrated && previousToolbarKey !== undefined && key === previousToolbarKey) ||
         (!toolbarGroupShortcutMigrated && keybind.id === "packEntityToSection" && key === "h") ||
         (!toolbarDragShortcutMigrated && keybind.id === "toggleMouseDragMode" && key === "")
@@ -312,6 +314,7 @@ export namespace KeyBindsUI {
     if (!toolbarGroupShortcutMigrated) await store.set("toolbarGroupShortcutMigrated", true);
     if (!toolbarDragShortcutMigrated) await store.set("toolbarDragShortcutMigrated", true);
     if (!directionalShortcutsMigrated) await store.set("directionalShortcutsMigrated", true);
+    if (!reverseEdgesShortcutMigrated) await store.set("reverseEdgesShortcutMigrated", true);
     await store.save();
   }
   /**

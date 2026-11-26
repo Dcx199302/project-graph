@@ -3,10 +3,75 @@ import { Rectangle, SymmetryCurve } from "@graphif/shapes";
 
 type Links = ReadonlyMap<string, ReadonlySet<string>>;
 type Rectangles = ReadonlyMap<string, Rectangle>;
+type MindMapFootprints = ReadonlyMap<string, { width: number; height: number }>;
 
 export type MindMapBranch = { parentId: string; side: number };
 
-export const mindMapSpacing = { branches: 62, verticalLevels: 150, horizontalLevels: 186, groups: 94 };
+export const mindMapSpacing = { branches: 62, verticalLevels: 255, horizontalLevels: 315, groups: 94 };
+
+export function mindMapDepthScale(depth: number) {
+  return Math.max(0.58, 0.88 ** depth);
+}
+
+export function approachesMindMapLeafVertically(horizontalOffset: number, verticalGap: number) {
+  return verticalGap > 0 && Math.abs(horizontalOffset) <= verticalGap * 0.75;
+}
+
+export function getMindMapSiblingRows(siblings: string[], rectangles: Rectangles, sections: ReadonlySet<string>) {
+  if (siblings.length < 2 || !siblings.some((id) => sections.has(id))) return [siblings];
+  const areas = new Map(
+    siblings.map((id) => {
+      const { width, height } = rectangles.get(id)!;
+      return [id, width * height];
+    }),
+  );
+  const sorted = [...areas.values()].sort((a, b) => a - b);
+  // 同级有多个大框时，仍以较小分支的面积作为靠内的基准。
+  const referenceArea = Math.max(1, sorted[Math.floor((sorted.length - 1) / 4)]);
+  const rows = new Map<number, string[]>();
+  for (const id of siblings) {
+    const row = sections.has(id) ? Math.max(0, Math.floor(Math.log2(areas.get(id)! / referenceArea))) : 0;
+    if (!rows.has(row)) rows.set(row, []);
+    rows.get(row)!.push(id);
+  }
+  return [...rows.keys()].sort((a, b) => a - b).map((row) => rows.get(row)!);
+}
+
+export function packMindMapSiblingRows(rows: string[][], footprints: MindMapFootprints, gap: number) {
+  const offsets = new Map<string, Vector>();
+  const widthOf = (ids: string[]) =>
+    ids.reduce((width, id) => width + footprints.get(id)!.width, 0) + Math.max(0, ids.length - 1) * gap;
+  let width = 0;
+  let height = 0;
+  for (const [index, row] of rows.entries()) {
+    let rowHeight = 0;
+    const place = (ids: string[], left: number) => {
+      for (const id of ids) {
+        const footprint = footprints.get(id)!;
+        offsets.set(id, new Vector(left + footprint.width / 2, height));
+        left += footprint.width + gap;
+        rowHeight = Math.max(rowHeight, footprint.height);
+      }
+    };
+    if (index < rows.length - 1) {
+      // 给通往外侧大分组的连线留出中间的通道。
+      const first = row.slice(0, Math.ceil(row.length / 2));
+      const second = row.slice(first.length);
+      const leftWidth = widthOf(first);
+      const rightWidth = widthOf(second);
+      place(first, -leftWidth - gap / 2);
+      place(second, gap / 2);
+      width = Math.max(width, 2 * Math.max(leftWidth, rightWidth) + gap);
+      height += rowHeight + gap;
+    } else {
+      const rowWidth = widthOf(row);
+      place(row, -rowWidth / 2);
+      width = Math.max(width, rowWidth);
+      height += rowHeight;
+    }
+  }
+  return { width, height, offsets };
+}
 
 export function layoutVerticalMindMap(
   rootId: string,
@@ -14,23 +79,31 @@ export function layoutVerticalMindMap(
   ordered: string[],
   children: ReadonlyMap<string, string[]>,
   rectangles: Rectangles,
+  sections: ReadonlySet<string>,
   sign: number,
   placements: Map<string, Rectangle>,
   fanParents: Map<string, MindMapBranch>,
+  depthOffset: number,
 ) {
-  const { branches: gap, verticalLevels: depthGap } = mindMapSpacing;
   // 枝条错落的幅度独立于节点间距，避免加宽间距时把深枝推得过远。
   const fanStep = 32;
+  const depthGap = mindMapSpacing.verticalLevels;
   const layouts = new Map<string, { width: number; height: number; levels: number; offsets: Map<string, Vector> }>();
   const nodes = [rootId, ...ordered];
+  const depths = new Map([[rootId, depthOffset]]);
+  for (const id of nodes) {
+    for (const child of id === rootId ? roots : children.get(id)!) depths.set(child, depths.get(id)! + 1);
+  }
   for (const id of [...nodes].reverse()) {
     const rectangle = rectangles.get(id)!;
     const siblings = id === rootId ? roots : children.get(id)!;
+    const gap = mindMapSpacing.branches * mindMapDepthScale(depths.get(id)!);
     const offsets = new Map<string, Vector>();
     let width = rectangle.width;
     let height = rectangle.height;
     const levels = siblings.reduce((max, child) => Math.max(max, layouts.get(child)!.levels + 1), 0);
-    if (siblings.length >= 5) {
+    const rows = getMindMapSiblingRows(siblings, rectangles, sections);
+    if (siblings.length >= 5 && rows.length === 1) {
       const middle = Math.floor(siblings.length / 2);
       const leader = siblings[middle];
       const leaderLayout = layouts.get(leader)!;
@@ -82,6 +155,13 @@ export function layoutVerticalMindMap(
             const curve = new SymmetryCurve(origin, away, entry, inward);
             if (!occupied.some((bounds) => entry.x >= bounds.left && curve.isCollideWithRectangle(bounds))) break;
           }
+          let verticalEntry =
+            childLayout.levels === 0 && approachesMindMapLeafVertically(center, offset.y - rectangle.height);
+          if (verticalEntry) {
+            const curve = new SymmetryCurve(origin, away, new Vector(center, offset.y), new Vector(0, -1));
+            verticalEntry = !occupied.some((bounds) => curve.isCollideWithRectangle(bounds));
+          }
+          fanParents.set(child, { parentId: id, side: verticalEntry ? 0 : side });
           occupied.push(
             new Rectangle(
               new Vector(center - childLayout.width / 2, offset.y),
@@ -89,7 +169,6 @@ export function layoutVerticalMindMap(
             ).expandFromCenter(8),
           );
           offset.x = side * center;
-          fanParents.set(child, { parentId: id, side });
           width = Math.max(width, 2 * center + childLayout.width);
         }
       }
@@ -98,16 +177,12 @@ export function layoutVerticalMindMap(
       width = Math.max(width, leaderLayout.width);
       height = leaderDepth + leaderLayout.height;
     } else if (siblings.length) {
-      const rowWidth =
-        siblings.reduce((sum, child) => sum + layouts.get(child)!.width, 0) + (siblings.length - 1) * gap;
-      let left = -rowWidth / 2;
-      for (const child of siblings) {
-        const size = layouts.get(child)!;
-        offsets.set(child, new Vector(left + size.width / 2, rectangle.height + depthGap));
-        left += size.width + gap;
-        height = Math.max(height, rectangle.height + depthGap + size.height);
+      const packed = packMindMapSiblingRows(rows, layouts, gap);
+      height += depthGap + packed.height;
+      width = Math.max(width, packed.width);
+      for (const [child, offset] of packed.offsets) {
+        offsets.set(child, new Vector(offset.x, rectangle.height + depthGap + offset.y));
       }
-      width = Math.max(width, rowWidth);
     }
     layouts.set(id, { width, height, levels, offsets });
   }

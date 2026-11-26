@@ -89,15 +89,20 @@ export abstract class Entity extends StageObject {
    * 由于自身位置的移动，递归的更新所有父级Section的位置和大小。
    * 每次父框 adjustLocationAndSize 后，调用碰撞求解器推开与其重叠的同级分支。
    */
-  protected updateFatherSectionByMove() {
+  protected updateFatherSectionByMove(checkPlacement = false) {
     if (this.project.sectionMoveDepth > 0) return;
+    const parent = this.parentSection;
+    if (!parent) return;
+    const solver = this.project.sectionCollisionSolver;
+    const before =
+      checkPlacement && !this.project.deferredMoveCollisions ? solver?.getPlacementBounds(parent) : undefined;
     let current = this.parentSection;
     while (current) {
       current.adjustLocationAndSize();
-      // 父框增大后，检测并推移与其重叠的同级 Section 分支
-      this.project.sectionCollisionSolver.solveOverlaps(current);
+      if (!before) solver?.solveOverlaps(current);
       current = current.parentSection;
     }
+    if (before) solver.solvePlacement(parent, before);
   }
   /**
    * 由于自身位置的更新，排开所有同级节点的位置
@@ -142,6 +147,10 @@ export abstract class Entity extends StageObject {
     }
   }
 
+  protected get collisionMargin(): number {
+    return 0;
+  }
+
   /**
    * 与其他实体碰撞，调整位置
    * @param other 其他实体
@@ -150,7 +159,10 @@ export abstract class Entity extends StageObject {
     if (!Settings.isEnableEntityCollision) {
       return;
     }
-    const selfRectangle = this.collisionBox.getRectangle();
+    const bounds = this.collisionBox.getRectangle();
+    const margin =
+      this.parentSection === other.parentSection ? Math.max(this.collisionMargin, other.collisionMargin) : 0;
+    const selfRectangle = margin > 0 ? bounds.expandFromCenter(margin) : bounds;
     const otherRectangle = other.collisionBox.getRectangle();
     if (!selfRectangle.isCollideWith(otherRectangle)) {
       return;

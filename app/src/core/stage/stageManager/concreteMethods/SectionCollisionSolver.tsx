@@ -75,7 +75,7 @@ export class SectionCollisionSolver {
     visited.add(grownSection.uuid);
 
     const siblings = this.getSiblingsSections(grownSection);
-    const grownRect = grownSection.collisionBox.getRectangle();
+    const grownRect = grownSection.collisionBox.getRectangle().expandFromCenter(Section.outerMargin);
 
     for (const sibling of siblings) {
       // 跳过被锁定的同级 Section（无法安全地原地修改其位置数据）

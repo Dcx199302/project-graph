@@ -355,14 +355,12 @@ addExecutor("layout_nodes", () => (project, { refs, mode }: { refs: string[]; mo
   if (isGrid) {
     project.layoutManager.layoutToSquare(nodes, mode === "grid_horizontal" ? "horizontal" : "vertical");
   } else {
-    const connectableNodes = nodes.filter(
-      (node): node is ConnectableEntity => node instanceof ConnectableEntity && !(node instanceof Section),
-    );
+    const connectableNodes = nodes.filter((node): node is ConnectableEntity => node instanceof ConnectableEntity);
     if (connectableNodes.length !== nodes.length) {
-      return { success: false, error: { code: "unsupported_node_type", message: "该布局只支持非分组的可连接节点" } };
+      return { success: false, error: { code: "unsupported_node_type", message: "该布局只支持可连接节点和分组" } };
     }
     if (mode === "mind_map") {
-      project.autoLayout.autoLayoutGraph(connectableNodes, "mindMap");
+      project.autoLayout.formatMindMap(connectableNodes);
     } else if (mode === "rectangle") {
       project.layoutManager.arrangeRectangle(connectableNodes);
     } else {
@@ -407,7 +405,7 @@ addExecutor("create_text_node", () => (project, { text, color, width, sizeAdjust
   };
 });
 addExecutor("generate_node_tree_by_text", () => (project, { text }) => {
-  project.stageManager.generateNodeTreeByText(text, 2);
+  project.stageManager.generateNodeTreeByText(text, 2, undefined, true);
 });
 addExecutor("expand_node_tree_from_node", () => (project, { ref, text }, references) => {
   const root = references.resolve(ref, "node");
@@ -612,102 +610,35 @@ addExecutor("get_selected_refs", () => (project, _data, references) => {
   return { refs };
 });
 
-addExecutor("breadth_expand_node", () => (project, { ref, texts }, references) => {
-  const sourceObject = references.resolve(ref, "node");
-  const sourceNode = project.stageManager.getConnectableEntityByUUID(sourceObject.uuid);
-  if (!sourceNode) {
-    return { success: false, error: "源节点不存在或不是可连接对象" };
-  }
-
-  const sourceRect = sourceNode.collisionBox.getRectangle();
-  const startX = sourceRect.location.x + sourceRect.size.x + 100; // 右侧100像素
-  const startY = sourceRect.location.y;
-  const verticalSpacing = 60;
-
-  const results: Array<{ text: string; ref?: string; success: boolean; error?: string }> = [];
-
-  for (let i = 0; i < texts.length; i++) {
-    const text = texts[i];
-    try {
-      const node = new TextNode(project, {
-        text,
-        color: new Color(0, 0, 0, 0), // 透明
-        collisionBox: new CollisionBox([
-          new Rectangle(new Vector(startX, startY + i * verticalSpacing), new Vector(100, 50)),
-        ]),
-        sizeAdjust: "auto" as "auto" | "manual",
-      });
-      project.stageManager.add(node);
-
-      // 创建连线
-      project.nodeConnector.connectConnectableEntity(sourceNode, node, "");
-
-      results.push({ text, ref: references.getOrCreateRef(node), success: true });
-    } catch (error) {
-      results.push({
-        text,
-        success: false,
-        error: error instanceof Error ? error.message : "创建节点失败",
-      });
+for (const [name, deep] of [
+  ["breadth_expand_node", false],
+  ["depth_expand_node", true],
+] as const) {
+  addExecutor(name, () => (project, { ref, texts }: { ref: string; texts: string[] }, references) => {
+    const object = references.resolve(ref, "node");
+    const root = project.stageManager.getConnectableEntityByUUID(object.uuid);
+    if (!root) return { success: false, error: "节点不存在或不是可连接对象" };
+    if (
+      root.nearestLockedAncestorSection ||
+      root.isHiddenBySectionCollapse ||
+      (root instanceof Section && (root.locked || root.isCollapsed))
+    ) {
+      return { success: false, error: "节点或分组已锁定或折叠" };
     }
-  }
 
-  if (results.some((r) => r.success)) {
-    project.historyManager.recordStep();
-  }
-
-  return { results };
-});
-
-addExecutor("depth_expand_node", () => (project, { ref, texts }, references) => {
-  const rootObject = references.resolve(ref, "node");
-  const rootNode = project.stageManager.getConnectableEntityByUUID(rootObject.uuid);
-  if (!rootNode) {
-    return { success: false, error: "根节点不存在或不是可连接对象" };
-  }
-
-  const results: Array<{ text: string; ref?: string; success: boolean; error?: string }> = [];
-  let currentNode = rootNode;
-  const horizontalSpacing = 150;
-
-  for (let i = 0; i < texts.length; i++) {
-    const text = texts[i];
-    try {
-      const currentRect = currentNode.collisionBox.getRectangle();
-      const node = new TextNode(project, {
+    const nodes = project.autoLayout.growMindMap(
+      root,
+      texts.map((text, index) => ({
         text,
-        color: new Color(0, 0, 0, 0), // 透明
-        collisionBox: new CollisionBox([
-          new Rectangle(
-            new Vector(currentRect.location.x + horizontalSpacing, currentRect.location.y),
-            new Vector(100, 50),
-          ),
-        ]),
-        sizeAdjust: "auto" as "auto" | "manual",
-      });
-      project.stageManager.add(node);
-
-      // 创建连线：从前一个节点连接到新节点
-      project.nodeConnector.connectConnectableEntity(currentNode, node, "");
-
-      results.push({ text, ref: references.getOrCreateRef(node), success: true });
-      currentNode = node; // 更新当前节点为新建的节点，继续链式扩展
-    } catch (error) {
-      results.push({
-        text,
-        success: false,
-        error: error instanceof Error ? error.message : "创建节点失败",
-      });
-      break; // 链式结构中一旦失败就停止
-    }
-  }
-
-  if (results.some((r) => r.success)) {
-    project.historyManager.recordStep();
-  }
-
-  return { results };
-});
+        parentIndex: deep && index > 0 ? index - 1 : undefined,
+      })),
+    );
+    if (nodes.length) project.historyManager.recordStep();
+    return {
+      results: nodes.map((node) => ({ text: node.text, ref: references.getOrCreateRef(node), success: true })),
+    };
+  });
+}
 
 addExecutor("sort_selected_nodes_by_y", () => (project, { current_order, desired_order }) => {
   // 获取所有选中的TextNode

@@ -89,6 +89,7 @@ function createGraph(graphLayout?: PreservedGraphLayout) {
     getConnectableEntity: () => nodes,
     getTextNodes: () => nodes,
     getEntities: () => nodes,
+    getTopLevelEntities: () => nodes,
     getEdges: () => edges,
     add: (newNode: TextNode) => nodes.push(newNode),
     changeEdgesConnectLocation: vi.fn(),

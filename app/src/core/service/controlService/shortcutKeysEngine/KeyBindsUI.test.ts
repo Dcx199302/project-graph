@@ -103,6 +103,65 @@ it.each([true, false])("swaps saved default directional shortcuts on macOS=%s", 
   expect(KeyBindsUI.getUIKeyBind(create)?.key).toBe("A-arrowup");
 });
 
+it.each([true, false])("migrates the old reverse-edge key once on macOS=%s", async (isMac) => {
+  config.isMac = isMac;
+  const id = "reverseEdges";
+  const previousKey = isMac ? "M-t" : "C-t";
+  const saved = new Map<string, unknown>([[id, { key: previousKey, isEnabled: false }]]);
+  config.store.get.mockImplementation(async (key: string) => saved.get(key));
+  config.store.set.mockImplementation(async (key: string, value: unknown) => void saved.set(key, value));
+  allKeyBinds.push({ id, defaultKey: "t", onPress: vi.fn(), when: () => true, icon: Redo });
+
+  await KeyBindsUI.registerAllUIKeyBinds();
+  expect(KeyBindsUI.getUIKeyBind(id)).toMatchObject({ key: "t", isEnabled: false });
+  expect(saved.get(id)).toEqual({ key: "t", isEnabled: false });
+
+  await KeyBindsUI.changeOneUIKeyBind(id, previousKey);
+  await KeyBindsUI.registerAllUIKeyBinds();
+  expect(KeyBindsUI.getUIKeyBind(id)).toMatchObject({ key: previousKey, isEnabled: false });
+});
+
+it("reverses a selected edge with T and preserves sequences containing T", async () => {
+  vi.useFakeTimers();
+  try {
+    const reverse = vi.fn();
+    const convert = vi.fn();
+    const tag = vi.fn();
+    let selected = false;
+    config.project = Object.create(Project.prototype);
+    allKeyBinds.push(
+      { id: "reverseEdges", defaultKey: "t", onPress: reverse, when: () => selected, isToggle: true, icon: Redo },
+      { id: "switchEdgeToArcEdge", defaultKey: "e t a", onPress: convert, when: () => selected, icon: Redo },
+      { id: "changeTagBySelected", defaultKey: "t a g g", onPress: tag, when: () => selected, icon: Redo },
+    );
+    await KeyBindsUI.registerAllUIKeyBinds();
+    KeyBindsUI.uiStartListen();
+    const press = async (key: string, repeat = false) => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key, repeat }));
+      await vi.advanceTimersByTimeAsync(0);
+    };
+
+    await press("t");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(reverse).not.toHaveBeenCalled();
+
+    selected = true;
+    await press("t");
+    await press("t", true);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(reverse).toHaveBeenCalledOnce();
+
+    for (const key of ["e", "t", "a"]) await press(key);
+    for (const key of ["t", "a", "g", "g"]) await press(key);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(convert).toHaveBeenCalledOnce();
+    expect(tag).toHaveBeenCalledOnce();
+    expect(reverse).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it.each([false, true])("blocks native macOS history on the canvas with Shift=%s and leaves text alone", (shiftKey) => {
   config.isMac = true;
   config.project = Object.create(Project.prototype);

@@ -1,4 +1,5 @@
 import type { Project } from "@/core/Project";
+import type { MindMapGrowthNode } from "@/core/service/controlService/autoLayoutEngine/mainTick";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { LineEdge } from "@/core/stage/stageObject/association/LineEdge";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
@@ -24,7 +25,23 @@ export class TreeImporter extends BaseImporter {
    * @param indention 缩进大小（空格数或Tab数）
    * @param diffLocation 偏移位置
    */
-  public import(text: string, indention: number, diffLocation: Vector = Vector.getZero()): void {
+  public import(text: string, indention: number, diffLocation: Vector = Vector.getZero(), mindMap = false): void {
+    if (mindMap) {
+      const entries = this.getMindMapEntries(text, indention);
+      const singleRoot = entries.length > 0 && entries.slice(1).every((entry) => entry.parentIndex !== undefined);
+      const root = new TextNode(this.project, {
+        text: singleRoot ? entries[0].text : "root",
+        collisionBox: new CollisionBox([new Rectangle(diffLocation, Vector.same(100))]),
+      });
+      this.project.stageManager.add(root);
+      const descendants = singleRoot
+        ? entries
+            .slice(1)
+            .map(({ text, parentIndex = 0 }) => ({ text, parentIndex: parentIndex > 0 ? parentIndex - 1 : undefined }))
+        : entries;
+      this.project.autoLayout.growMindMap(root, descendants, true);
+      return;
+    }
     // 将本文转换成字符串数组，按换行符分割
     const lines = text.split("\n");
 
@@ -95,61 +112,26 @@ export class TreeImporter extends BaseImporter {
       return { success: false, error: "节点不是TextNode类型" };
     }
 
-    // 将本文转换成字符串数组，按换行符分割
-    const lines = text.split("\n");
-
-    // 准备好栈，使用现有节点作为根节点
-    const nodeStack = new MonoStack<TextNode>();
-    nodeStack.push(rootNode, -1);
-
-    let nodeCount = 0;
-
-    // 遍历每一行
-    for (let yIndex = 0; yIndex < lines.length; yIndex++) {
-      const line = lines[yIndex];
-      // 跳过空行
-      if (line.trim() === "") {
-        continue;
-      }
-      // 解析缩进格式
-      const indent = this.getIndentLevel(line, indention);
-      // 解析文本内容
-      const textContent = line.trim();
-
-      const node = new TextNode(this.project, {
-        text: textContent.replaceAll("\\t", "\t").replaceAll("\\n", "\n"),
-        collisionBox: new CollisionBox([
-          new Rectangle(
-            rootNode.collisionBox.getRectangle().location.add(new Vector(indent * 50, (yIndex + 1) * 100)),
-            Vector.same(100),
-          ),
-        ]),
-      });
-      this.project.stageManager.add(node);
-      nodeCount++;
-
-      // 检查栈
-      // 保持一个严格单调栈
-      if (nodeStack.peek()) {
-        nodeStack.push(node, indent);
-        const fatherNode = nodeStack.unsafeGet(nodeStack.length - 2);
-        // 创建从父节点右侧到子节点左侧的连线
-        const newEdge = new LineEdge(this.project, {
-          associationList: [fatherNode, node],
-          targetRectangleRate: new Vector(0.01, 0.5), // 目标节点左侧边缘
-          sourceRectangleRate: new Vector(0.99, 0.5), // 源节点右侧边缘
-        });
-        this.project.stageManager.add(newEdge);
-      }
+    if (rootNode.nearestLockedAncestorSection || rootNode.isHiddenBySectionCollapse) {
+      return { success: false, error: "节点位于锁定或折叠的分组内" };
     }
+    const nodes = this.project.autoLayout.growMindMap(rootNode, this.getMindMapEntries(text, indention));
+    return { success: true, nodeCount: nodes.length };
+  }
 
-    if (nodeCount > 0) {
-      // 运行树形布局格式化
-      this.project.autoLayoutFastTree.autoLayoutFastTreeMode(rootNode);
-      return { success: true, nodeCount };
-    } else {
-      return { success: true, nodeCount: 0 }; // 文本为空或只有空行
+  private getMindMapEntries(text: string, indention: number): MindMapGrowthNode[] {
+    const entries: MindMapGrowthNode[] = [];
+    const ancestors: { depth: number; index: number }[] = [];
+    for (const line of text.split("\n")) {
+      const label = line.trim();
+      if (!label) continue;
+      const depth = this.getIndentLevel(line, indention);
+      while (ancestors.length && ancestors.at(-1)!.depth >= depth) ancestors.pop();
+      const parentIndex = ancestors.at(-1)?.index;
+      ancestors.push({ depth, index: entries.length });
+      entries.push({ text: label.replaceAll("\\t", "\t").replaceAll("\\n", "\n"), parentIndex });
     }
+    return entries;
   }
 
   /**

@@ -184,8 +184,7 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
 
   /**
    * 更新字体大小缓存
-   * fontScaleLevel 存储的是"半个级别"，所以计算时要除以 2
-   * 这样步长就是 0.5，避免了浮点数精度问题
+   * 每增加一级，字号乘以 √2。树图生长也可以使用更小的步长。
    */
   private updateFontSizeCache(): void {
     this.fontSizeCache = Renderer.FONT_SIZE * 2 ** (this.fontScaleLevel / 2);
@@ -271,6 +270,7 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
         Vector.same(this.getPadding()).multiply(2),
       ),
     );
+    this.updateFatherSectionByMove(true);
   }
   private adjustHeightByText() {
     const wrapWidth = this.rectangle.size.x - this.getPadding() * 2;
@@ -286,7 +286,7 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
       this.rectangle.location.clone(),
       new Vector(this.rectangle.size.x, newTextSize.y + this.getPadding() * 2),
     );
-    this.updateFatherSectionByMove();
+    this.updateFatherSectionByMove(true);
   }
   /**
    * 强制触发自动调整大小
@@ -351,7 +351,7 @@ export class TextNode extends ConnectableEntity implements ResizeAble {
     newRectangle.size = newSize;
 
     this.collisionBox.shapes[0] = newRectangle;
-    this.updateFatherSectionByMove();
+    this.updateFatherSectionByMove(true);
   }
 
   resizeWidthTo(width: number) {

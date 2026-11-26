@@ -42,8 +42,8 @@ export class StageImport {
    * @param indention 缩进大小（空格数或Tab数）
    * @param diffLocation 偏移位置
    */
-  public addNodeTreeByText(text: string, indention: number, diffLocation: Vector = Vector.getZero()) {
-    return this.treeImporter.import(text, indention, diffLocation);
+  public addNodeTreeByText(text: string, indention: number, diffLocation: Vector = Vector.getZero(), mindMap = false) {
+    return this.treeImporter.import(text, indention, diffLocation, mindMap);
   }
 
   /**

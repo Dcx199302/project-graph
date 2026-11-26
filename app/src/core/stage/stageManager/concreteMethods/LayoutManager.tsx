@@ -1,4 +1,5 @@
 import { Project, service } from "@/core/Project";
+import { getLayoutItem, getLayoutScope } from "@/core/stage/stageManager/basicMethods/sectionLayout";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
@@ -9,20 +10,29 @@ import { Section } from "../../stageObject/entity/Section";
 
 const nodeSpacingStep = 1.12;
 
+function getMovableLayoutItems<T extends Entity>(entities: T[], scope = getLayoutScope(entities)): (T | Section)[] {
+  const items = new Set<T | Section>();
+  for (const entity of entities) {
+    const item = getLayoutItem(entity, scope);
+    if (
+      item &&
+      !item.isHiddenBySectionCollapse &&
+      !item.nearestLockedAncestorSection &&
+      !(item instanceof Section && item.locked)
+    )
+      items.add(item);
+  }
+  return [...items];
+}
+
 @service("layoutManager")
 export class LayoutManager {
   constructor(private readonly project: Project) {}
 
   private getSelectedLayoutNodes() {
-    return this.project.stageManager
-      .getSelectedEntities()
-      .filter(
-        (node): node is ConnectableEntity =>
-          node instanceof ConnectableEntity &&
-          !(node instanceof Section) &&
-          !node.nearestLockedAncestorSection &&
-          !node.isHiddenBySectionCollapse,
-      );
+    return getMovableLayoutItems(
+      this.project.stageManager.getSelectedEntities().filter((node) => node instanceof ConnectableEntity),
+    );
   }
 
   canArrangeSelectedLine() {
@@ -34,11 +44,15 @@ export class LayoutManager {
   }
 
   arrangeRectangle(nodes: ConnectableEntity[]) {
+    const scope = getLayoutScope(nodes);
+    nodes = getMovableLayoutItems(nodes, scope);
     if (nodes.length < 2) return;
 
     const neighbors = new Map(nodes.map((node) => [node, new Set<ConnectableEntity>()]));
-    for (const { source, target } of this.project.stageManager.getEdges()) {
-      if (source === target || !neighbors.has(source) || !neighbors.has(target)) continue;
+    for (const edge of this.project.stageManager.getEdges()) {
+      const source = getLayoutItem(edge.source, scope);
+      const target = getLayoutItem(edge.target, scope);
+      if (!source || !target || source === target || !neighbors.has(source) || !neighbors.has(target)) continue;
       neighbors.get(source)!.add(target);
       neighbors.get(target)!.add(source);
     }
@@ -106,7 +120,7 @@ export class LayoutManager {
   }
 
   adjustNodeSpacing(nodes: ConnectableEntity[], increase: boolean) {
-    const items = nodes.map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
+    const items = getMovableLayoutItems(nodes).map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
     const rectangles = items.map(({ rect }) => rect);
     const factor = this.getSpacingFactor(rectangles, increase);
     if (factor === 1) return;
@@ -146,10 +160,17 @@ export class LayoutManager {
     if (!moves.some(needsMove)) return;
 
     const sections = new Set<Section>();
+    const parents = new Map<Section, ReadonlyMap<Section, Rectangle>>();
+    const solver = this.project.sectionCollisionSolver;
     const movingSeparately = new Set(moves.map(({ node }) => node));
     this.project.sectionMoveDepth++;
     try {
       for (const { node, location } of moves) {
+        const parent = node.parentSection;
+        if (parent && !parents.has(parent)) {
+          const before = solver?.getPlacementBounds(parent);
+          if (before) parents.set(parent, before);
+        }
         for (let section = node.parentSection; section; section = section.parentSection) sections.add(section);
         if (!needsMove({ node, location })) continue;
         if (node instanceof Section) node.moveTo(location, movingSeparately);
@@ -160,6 +181,7 @@ export class LayoutManager {
       for (const section of [...sections].sort((a, b) => b.sectionDepth - a.sectionDepth))
         section.adjustLocationAndSize();
     }
+    for (const [parent, before] of parents) solver.solvePlacement(parent, before);
     this.project.historyManager.recordStep();
   }
 
@@ -378,6 +400,7 @@ export class LayoutManager {
     }
   }
   layoutToSquare(entities: Entity[], axis: "horizontal" | "vertical" = "horizontal") {
+    entities = getMovableLayoutItems(entities);
     const n = entities.length;
     if (n <= 1) return;
 
@@ -429,7 +452,7 @@ export class LayoutManager {
       const location = new Vector(cellCenterX - rect.width / 2, cellCenterY - rect.height / 2);
       return { node, location };
     });
-    this.applyNodeLayout(moves.filter(({ node }) => !node.nearestLockedAncestorSection));
+    this.applyNodeLayout(moves);
   }
   layoutToTightSquare(entities: Entity[]) {
     if (entities.length === 0) return;

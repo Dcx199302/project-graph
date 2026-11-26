@@ -261,7 +261,7 @@ const definitions: BuiltInToolDefinition[] = [
   defineTool({
     name: "layout_nodes",
     description:
-      "使用画布「布局」菜单的算法整理指定节点。grid_horizontal：横向方阵；grid_vertical：纵向方阵；mind_map：按已有连线生成树图；rectangle：矩形布局；increase_spacing / decrease_spacing：增大或缩小现有间距。方阵也支持分组，其余模式适用于普通可连接节点。请先完成节点和连线，再选择布局。",
+      "使用画布「布局」菜单的算法整理指定节点和分组。grid_horizontal：横向方阵；grid_vertical：纵向方阵；mind_map：按已有连线生成树图；rectangle：矩形布局；increase_spacing / decrease_spacing：增大或缩小现有间距。请先完成节点和连线，再选择布局。",
     inputSchema: z.object({
       refs: z.array(nodeRefSchema).min(2).describe("至少两个需要布局且互不重复的节点项目级引用"),
       mode: nodeLayoutModeSchema,
@@ -301,7 +301,7 @@ const definitions: BuiltInToolDefinition[] = [
         .string()
         .describe("包含缩进结构的文本，每一层缩进2个空格，例如：'root\\n  child1\\n  child2\\n    grandchild'"),
     }),
-    capabilities: ["project", "history", "effects", "graph", "tree-import", "dom", "settings", "viewport"],
+    capabilities: ["project", "history", "effects", "layout", "tree-import", "dom", "settings", "viewport"],
     projectReferences: { reads: false, allocates: false },
     cancellation: "none",
     transaction: "non-transactional",
@@ -314,7 +314,7 @@ const definitions: BuiltInToolDefinition[] = [
       ref: nodeRefSchema.describe("根节点引用"),
       text: z.string().describe("包含缩进结构的文本，每一层缩进2个空格，例如：'child1\\n  grandchild\\nchild2'"),
     }),
-    capabilities: ["project", "references", "history", "effects", "graph", "tree-import", "dom", "settings"],
+    capabilities: ["project", "references", "history", "effects", "layout", "tree-import", "dom", "settings"],
     projectReferences: { reads: true, allocates: false },
     cancellation: "none",
     transaction: "non-transactional",
@@ -463,7 +463,7 @@ const definitions: BuiltInToolDefinition[] = [
       ref: nodeRefSchema.describe("源节点引用"),
       texts: z.array(z.string()).describe("要添加的子节点文本数组"),
     }),
-    capabilities: ["project", "references", "history", "effects", "node-connect", "dom", "settings"],
+    capabilities: ["project", "references", "history", "effects", "layout", "dom", "settings"],
     projectReferences: { reads: true, allocates: true },
     cancellation: "none",
     transaction: "partial-success",
@@ -476,7 +476,7 @@ const definitions: BuiltInToolDefinition[] = [
       ref: nodeRefSchema.describe("根节点引用"),
       texts: z.array(z.string()).describe("要添加的链式节点文本数组"),
     }),
-    capabilities: ["project", "references", "history", "effects", "node-connect", "dom", "settings"],
+    capabilities: ["project", "references", "history", "effects", "layout", "dom", "settings"],
     projectReferences: { reads: true, allocates: true },
     cancellation: "none",
     transaction: "partial-success",

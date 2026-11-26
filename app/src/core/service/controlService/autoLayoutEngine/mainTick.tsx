@@ -1,14 +1,25 @@
 import { Project, service } from "@/core/Project";
 import { Settings } from "@/core/service/Settings";
+import { getLayoutItem, getLayoutScope } from "@/core/stage/stageManager/basicMethods/sectionLayout";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Edge, type PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { LineEdge } from "@/core/stage/stageObject/association/LineEdge";
-import type { Section } from "@/core/stage/stageObject/entity/Section";
+import { Section } from "@/core/stage/stageObject/entity/Section";
+import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { Direction } from "@/types/directions";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { toast } from "sonner";
-import { layoutFishbone, layoutVerticalMindMap, mindMapSpacing, type MindMapBranch } from "./directedLayouts";
+import {
+  approachesMindMapLeafVertically,
+  getMindMapSiblingRows,
+  layoutFishbone,
+  layoutVerticalMindMap,
+  mindMapDepthScale,
+  mindMapSpacing,
+  packMindMapSiblingRows,
+  type MindMapBranch,
+} from "./directedLayouts";
 
 export type DAGLayoutResult = {
   movedCount: number;
@@ -18,6 +29,30 @@ export type DAGLayoutResult = {
 type MindMapNode = { id: string; rectangle: Rectangle };
 type MindMapNeighbors = Map<string, Map<string, Direction | undefined>>;
 export type GraphLayout = Exclude<PreservedGraphLayout, "dag">;
+export type MindMapGrowthNode = { text: string; parentIndex?: number };
+
+const mindMapFontStep = 1;
+const mindMapMaxFontReduction = 2;
+
+export function mindMapChildFontLevel(parent: ConnectableEntity) {
+  const level = parent instanceof TextNode ? parent.fontScaleLevel : 0;
+  const minimum = -mindMapMaxFontReduction;
+  return level <= minimum ? level : Math.max(minimum, level - mindMapFontStep);
+}
+
+function getMindMapTreeLinks(edges: readonly Edge[]) {
+  const children = new Map<ConnectableEntity, Set<ConnectableEntity>>();
+  const parents = new Map<ConnectableEntity, Set<ConnectableEntity>>();
+  for (const edge of edges) {
+    if (edge instanceof LineEdge && edge.lineType === "dashed") continue;
+    const { source, target } = edge;
+    if (!children.has(source)) children.set(source, new Set());
+    if (!parents.has(target)) parents.set(target, new Set());
+    children.get(source)!.add(target);
+    parents.get(target)!.add(source);
+  }
+  return { children, parents };
+}
 
 function getLayoutDirection(x: number, y: number): Direction | undefined {
   if (!x && !y) return;
@@ -303,38 +338,393 @@ export class AutoLayout {
     return this.autoLayoutGraph(entities, "mindMap");
   }
 
-  public autoLayoutGraph(entities: ConnectableEntity[], layout: GraphLayout): boolean {
-    const selectedRoot = layout === "mindMap" && entities.length === 1 ? entities[0] : undefined;
-    const byId = new Map(entities.map((entity) => [entity.uuid, entity]));
-    let edges: Edge[];
-    if (selectedRoot) {
-      const sections = new Set<ConnectableEntity>(this.project.stageManager.getSections());
-      const movableNodes = new Map(
-        this.project.stageManager
-          .getConnectableEntity()
-          .filter(
-            (entity) =>
-              !sections.has(entity) && !entity.nearestLockedAncestorSection && !entity.isHiddenBySectionCollapse,
+  public growMindMap(root: ConnectableEntity, entries: readonly MindMapGrowthNode[], newRoot = false): TextNode[] {
+    if (newRoot) this.fitMindMapItem(root);
+    if (!entries.length) return [];
+    const adjacent = this.project.stageManager
+      .getEdges()
+      .filter((edge) => edge.source === root || edge.target === root);
+    const relation = adjacent.find((edge) => edge.graphLayout === "mindMap" && edge.target === root) ?? adjacent[0];
+    const delta = relation?.target.collisionBox
+      .getRectangle()
+      .center.subtract(relation.source.collisionBox.getRectangle().center);
+    const direction = (delta && getLayoutDirection(delta.x, delta.y)) ?? Direction.Right;
+    const vertical = direction === Direction.Up || direction === Direction.Down;
+    const sign = direction === Direction.Up || direction === Direction.Left ? -1 : 1;
+    const section = root.parentSection;
+    const created: TextNode[] = [];
+    const edges: LineEdge[] = [];
+    for (const { text, parentIndex } of entries) {
+      const parent = parentIndex === undefined ? root : created[parentIndex];
+      const node = new TextNode(this.project, {
+        text,
+        fontScaleLevel: mindMapChildFontLevel(parent),
+        borderStyle: Settings.textNodeInitBorderStyle,
+      });
+      const bounds = parent.collisionBox.getRectangle();
+      const rect = node.collisionBox.getRectangle();
+      const axis = vertical ? "y" : "x";
+      const across = vertical ? "x" : "y";
+      const location = bounds.center.subtract(rect.size.divide(2));
+      location[axis] += sign * ((bounds.size[axis] + rect.size[axis]) / 2 + 120);
+      location[across] += created.length * 8;
+      node.moveTo(location);
+      created.push(node);
+      edges.push(new LineEdge(this.project, { associationList: [parent, node] }));
+    }
+    for (const node of created) this.project.stageManager.add(node, true);
+    for (const edge of edges) this.project.stageManager.add(edge, true);
+    if (section) section.children.push(...created);
+    this.project.stageManager.updateReferences();
+    this.formatMindMap(created, root);
+    return created;
+  }
+
+  public formatMindMap(entities: ConnectableEntity[], growthRoot?: ConnectableEntity, reflow = true): boolean {
+    const edges = this.project.stageManager.getEdges();
+    const links = getMindMapTreeLinks(edges);
+    const focus = !growthRoot && entities.length === 1 && !(entities[0] instanceof Section) ? entities[0] : undefined;
+    const focusedDepths = new Map<ConnectableEntity, number>();
+    if (growthRoot) {
+      // 扩展一个已有分支时，让同一棵树的其他分支按新尺寸重新排布。
+      const ancestors = new Set([growthRoot]);
+      let root = growthRoot;
+      while (links.parents.get(root)?.size === 1) {
+        const parent = links.parents.get(root)!.values().next().value!;
+        if (
+          ancestors.has(parent) ||
+          parent.nearestLockedAncestorSection ||
+          parent.isHiddenBySectionCollapse ||
+          (parent instanceof Section && parent.locked)
+        )
+          break;
+        ancestors.add(parent);
+        root = parent;
+      }
+      const tree = new Set([root, growthRoot, ...entities]);
+      for (const node of tree) {
+        for (const child of links.children.get(node) ?? []) {
+          if (
+            links.parents.get(child)?.size === 1 &&
+            !child.isHiddenBySectionCollapse &&
+            !child.nearestLockedAncestorSection &&
+            !(child instanceof Section && child.locked)
           )
-          .map((entity) => [entity.uuid, entity]),
-      );
-      edges = [];
-      for (const edge of this.project.stageManager.getEdges()) {
-        const { source, target } = edge;
-        const neighborId =
-          source.uuid === selectedRoot.uuid ? target.uuid : target.uuid === selectedRoot.uuid ? source.uuid : undefined;
-        if (neighborId === undefined || neighborId === selectedRoot.uuid) continue;
-        const neighbor = movableNodes.get(neighborId);
-        if (!neighbor) continue;
-        byId.set(neighborId, neighbor);
+            tree.add(child);
+        }
+      }
+      entities = [...tree];
+    } else if (focus) {
+      if (focus.nearestLockedAncestorSection || focus.isHiddenBySectionCollapse) return false;
+      focusedDepths.set(focus, 0);
+      for (const [node, depth] of focusedDepths) {
+        for (const neighbor of [...(links.children.get(node) ?? []), ...(links.parents.get(node) ?? [])]) {
+          if (
+            focusedDepths.has(neighbor) ||
+            neighbor.isHiddenBySectionCollapse ||
+            neighbor.nearestLockedAncestorSection ||
+            (neighbor instanceof Section && neighbor.locked)
+          )
+            continue;
+          focusedDepths.set(neighbor, depth + 1);
+        }
+      }
+      if (focusedDepths.size < 2) return true;
+      entities = [...focusedDepths.keys()];
+    } else {
+      const selected = new Set(entities);
+      for (const node of selected) {
+        if (
+          !(node instanceof Section) ||
+          !node.mindMapBranch ||
+          node.locked ||
+          node.isCollapsed ||
+          node.nearestLockedAncestorSection ||
+          node.isHiddenBySectionCollapse
+        )
+          continue;
+        for (const child of node.children) {
+          if (child instanceof ConnectableEntity) selected.add(child);
+        }
+      }
+      entities = [...selected];
+    }
+
+    const { grouped, depths, resized } = this.prepareMindMapBranches(entities, links, reflow, focusedDepths);
+    const scope = getLayoutScope(entities);
+    if (
+      !growthRoot &&
+      !grouped &&
+      !resized &&
+      !entities.some((node) => node.parentSection && (node.parentSection !== scope || node.parentSection.mindMapBranch))
+    ) {
+      return this.applyGraphLayout(entities, "mindMap", edges, true, 0, focus);
+    }
+    if (growthRoot && !reflow && !grouped) {
+      if (growthRoot.parentSection) this.fitMindMapItem(growthRoot.parentSection);
+      return true;
+    }
+
+    const edgesByScope = new Map<Section | null, Edge[]>();
+    for (const edge of edges) {
+      const parent = getLayoutScope([edge.source, edge.target]);
+      if (!edgesByScope.has(parent)) edgesByScope.set(parent, []);
+      edgesByScope.get(parent)!.push(edge);
+    }
+    const selected = new Set(entities);
+    const coveredGroups = new Map<Section, boolean>();
+    const coversGroup = (group: Section): boolean => {
+      const cached = coveredGroups.get(group);
+      if (cached !== undefined) return cached;
+      const covered = group.children.every((child) => {
+        if (!(child instanceof ConnectableEntity) || selected.has(child)) return true;
+        if (child instanceof Section) return child.isCollapsed || child.locked || coversGroup(child);
+        return !links.children.has(child) && !links.parents.has(child);
+      });
+      coveredGroups.set(group, covered);
+      return covered;
+    };
+    const passes = new Map<Section | null, Set<ConnectableEntity>>();
+    for (const node of entities) {
+      for (let item: ConnectableEntity = node; ; ) {
+        const parent = item.parentSection ?? null;
+        if (
+          parent &&
+          parent !== scope &&
+          !growthRoot &&
+          !focus &&
+          !parent.mindMapBranch &&
+          (!edgesByScope.get(parent)?.some((edge) => !(edge instanceof LineEdge) || edge.lineType !== "dashed") ||
+            !coversGroup(parent))
+        ) {
+          break;
+        }
+        if (!passes.has(parent)) passes.set(parent, new Set());
+        const pass = passes.get(parent)!;
+        if (pass.has(item)) break;
+        pass.add(item);
+        if (!parent || parent === scope) break;
+        item = parent;
+      }
+    }
+    // 内部排版完成后，外层仍将每个分组作为一个整体移动。
+    passes.set(scope, new Set(entities.map((node) => getLayoutItem(node, scope)!)));
+    for (const [parent, items] of [...passes].sort(([a], [b]) => (b?.sectionDepth ?? -1) - (a?.sectionDepth ?? -1))) {
+      const root = parent?.mindMapBranch ? parent.children[0] : undefined;
+      const depth = root instanceof ConnectableEntity ? (focusedDepths.get(root) ?? depths.get(root)) : undefined;
+      if (items.size > 1) {
+        this.applyGraphLayout([...items], "mindMap", edgesByScope.get(parent) ?? [], false, depth, focus);
+      } else {
+        const item = items.values().next().value;
+        if (item instanceof Section && passes.has(item)) this.avoidMindMapItemOverlap(item);
+      }
+      parent?.adjustLocationAndSize();
+    }
+    if (scope) this.fitMindMapItem(scope);
+    if (!growthRoot) this.project.historyManager.recordStep();
+    return true;
+  }
+
+  private prepareMindMapBranches(
+    entities: ConnectableEntity[],
+    { children, parents }: ReturnType<typeof getMindMapTreeLinks>,
+    resizeFonts: boolean,
+    focusedDepths: ReadonlyMap<ConnectableEntity, number>,
+  ) {
+    const selected = new Set(
+      entities.filter(
+        (node) => !(node instanceof Section) && !node.nearestLockedAncestorSection && !node.isHiddenBySectionCollapse,
+      ),
+    );
+    const branches = new Map<ConnectableEntity, { size: number; entries: ConnectableEntity[]; complete: boolean }>();
+    const groups: Section[] = [];
+    const pendingChildCounts = new Map<Section, number>();
+    const decorationCounts = new Map<Section, number>();
+    const depths = new Map<ConnectableEntity, number>();
+    const fontLevels = new Map<TextNode, number>();
+    const setFontLevels = (
+      nodes: Iterable<ConnectableEntity>,
+      levels: ReadonlyMap<ConnectableEntity, number>,
+      rootLevel: number,
+    ) => {
+      for (const node of nodes) {
+        const depth = levels.get(node)!;
+        if (node instanceof TextNode && depth > 0) {
+          fontLevels.set(node, rootLevel - Math.min(mindMapMaxFontReduction, depth * mindMapFontStep));
+        }
+      }
+    };
+    if (resizeFonts && focusedDepths.size) {
+      const root = focusedDepths.keys().next().value;
+      setFontLevels(focusedDepths.keys(), focusedDepths, root instanceof TextNode ? root.fontScaleLevel : 0);
+    }
+    for (const root of selected) {
+      if ([...(parents.get(root) ?? [])].some((parent) => selected.has(parent))) continue;
+      const tree = new Set([root]);
+      depths.set(root, 0);
+      let valid = true;
+      for (const node of tree) {
+        for (const child of children.get(node) ?? []) {
+          if (!selected.has(child)) continue;
+          if (tree.has(child) || parents.get(child)!.size !== 1) valid = false;
+          else depths.set(child, depths.get(node)! + 1);
+          tree.add(child);
+        }
+      }
+      if (!valid) continue;
+
+      if (resizeFonts && !focusedDepths.size) {
+        const rootLevel = root instanceof TextNode ? root.fontScaleLevel : 0;
+        setFontLevels(tree, depths, rootLevel);
+      }
+
+      for (const node of [...tree].reverse()) {
+        const descendants = [...(children.get(node) ?? [])];
+        const childrenResults = descendants.map((child) => branches.get(child));
+        const descendantCount = childrenResults.reduce((total, child) => total + (child?.size ?? 0), 0);
+        const size = descendantCount + 1;
+        if (!childrenResults.every((child) => child?.complete)) {
+          branches.set(node, { size, complete: false, entries: [] });
+          continue;
+        }
+        const entries = [node, ...childrenResults.flatMap((child) => child?.entries ?? [])];
+        const parent = node.parentSection ?? null;
+        if (!entries.every((entry) => (entry.parentSection ?? null) === parent)) {
+          branches.set(node, { size, complete: false, entries: [] });
+          continue;
+        }
+        const parentChildCount = parent ? (pendingChildCounts.get(parent) ?? parent.children.length) : 0;
+        let decorationCount = 0;
+        if (parent && !parent.mindMapBranch && descendantCount > 5 && parentChildCount > entries.length) {
+          decorationCount =
+            decorationCounts.get(parent) ??
+            parent.children.filter(
+              (child) =>
+                !(child instanceof Section) &&
+                (!(child instanceof ConnectableEntity) || (!children.has(child) && !parents.has(child))),
+            ).length;
+          decorationCounts.set(parent, decorationCount);
+        }
+        // 手动框里的独立注释或涂鸦不应导致同一分支重新建框。
+        if (
+          parent &&
+          (parentChildCount - decorationCount === entries.length ||
+            (parent.mindMapBranch && parent.children[0] === node))
+        ) {
+          branches.set(node, { size, complete: true, entries: [parent] });
+          continue;
+        }
+        if (descendantCount <= 5) {
+          branches.set(node, { size, complete: true, entries });
+          continue;
+        }
+
+        const section = new Section(this.project, {
+          text: node instanceof TextNode ? node.text.split("\n")[0] : "",
+          children: entries,
+          mindMapBranch: true,
+          borderStyle: Settings.sectionInitBorderStyle,
+        });
+        this.project.stageManager.add(section, true);
+        // 子分组先创建，父级成员数需要反映这次合并，实际列表稍后统一更新。
+        if (parent) pendingChildCounts.set(parent, parentChildCount - entries.length + 1);
+        section.parentSection = parent;
+        for (const entry of entries) entry.parentSection = section;
+        groups.push(section);
+        branches.set(node, { size, complete: true, entries: [section] });
+      }
+    }
+    const resizedSections = new Set<Section>();
+    let resized = false;
+    this.project.sectionMoveDepth++;
+    try {
+      for (const [node, level] of fontLevels) {
+        if (Math.abs(node.fontScaleLevel - level) < 1e-9) continue;
+        node.setFontScaleLevel(level);
+        resized = true;
+        for (let parent = node.parentSection; parent; parent = parent.parentSection) resizedSections.add(parent);
+      }
+    } finally {
+      this.project.sectionMoveDepth--;
+    }
+    if (groups.length) {
+      for (const parent of pendingChildCounts.keys()) {
+        parent.children = parent.children.filter((child) => child.parentSection === parent);
+      }
+      for (const section of groups) {
+        if (section.parentSection && !section.parentSection.children.includes(section)) {
+          section.parentSection.children.push(section);
+        }
+      }
+      this.project.stageManager.updateReferences();
+    } else {
+      for (const section of [...resizedSections].sort((a, b) => b.sectionDepth - a.sectionDepth)) {
+        section.adjustLocationAndSize();
+      }
+    }
+    return { grouped: groups.length > 0, depths, resized };
+  }
+
+  public autoLayoutGraph(entities: ConnectableEntity[], layout: GraphLayout): boolean {
+    return this.applyGraphLayout(entities, layout, this.project.stageManager.getEdges(), true);
+  }
+
+  private applyGraphLayout(
+    entities: ConnectableEntity[],
+    layout: GraphLayout,
+    allEdges: Edge[],
+    recordHistory: boolean,
+    depthOffset = 0,
+    focus?: ConnectableEntity,
+  ): boolean {
+    const selectedRoot = layout === "mindMap" && entities.length === 1 ? entities[0] : undefined;
+    const scope = layout === "mindMap" ? getLayoutScope(entities) : null;
+    const representatives = new Map<ConnectableEntity, ConnectableEntity | undefined>();
+    const getItem = (entity: ConnectableEntity) => {
+      if (!representatives.has(entity)) {
+        representatives.set(entity, layout === "mindMap" ? getLayoutItem(entity, scope) : entity);
+      }
+      return representatives.get(entity);
+    };
+    const byId = new Map<string, ConnectableEntity>();
+    for (const entity of entities) {
+      const item = getItem(entity);
+      if (
+        item &&
+        !item.isHiddenBySectionCollapse &&
+        !(item instanceof Section && item.locked) &&
+        !item.nearestLockedAncestorSection
+      ) {
+        byId.set(item.uuid, item);
+      }
+    }
+    const edges: Edge[] = [];
+    if (selectedRoot) {
+      if (!byId.size) return false;
+      for (const edge of allEdges) {
+        const source = getItem(edge.source);
+        const target = getItem(edge.target);
+        const neighbor: ConnectableEntity | undefined =
+          source === selectedRoot ? target : target === selectedRoot ? source : undefined;
+        if (
+          !neighbor ||
+          neighbor === selectedRoot ||
+          neighbor.isHiddenBySectionCollapse ||
+          neighbor.nearestLockedAncestorSection ||
+          (neighbor instanceof Section && neighbor.locked)
+        )
+          continue;
+        byId.set(neighbor.uuid, neighbor);
         edges.push(edge);
       }
       if (byId.size === 1) return true;
     } else {
-      edges = this.project.stageManager
-        .getEdges()
-        .filter(({ source, target }) => byId.has(source.uuid) && byId.has(target.uuid));
       if (byId.size < 2) return false;
+      for (const edge of allEdges) {
+        const source = getItem(edge.source);
+        const target = getItem(edge.target);
+        if (source && target && source !== target && byId.has(source.uuid) && byId.has(target.uuid)) edges.push(edge);
+      }
     }
 
     const nodes = Array.from(byId.values(), (entity) => ({
@@ -346,14 +736,19 @@ export class AutoLayout {
     const neighbors = new Map(nodes.map(({ id }) => [id, new Map<string, Direction | undefined>()]));
     const outgoing = new Map(nodes.map(({ id }) => [id, new Set<string>()]));
     const incoming = new Map(nodes.map(({ id }) => [id, new Set<string>()]));
+    const directEdges: Edge[] = [];
     for (const edge of edges) {
-      const from = edge.source.uuid;
-      const to = edge.target.uuid;
+      const source = getItem(edge.source)!;
+      const target = getItem(edge.target)!;
+      const from = source.uuid;
+      const to = target.uuid;
       const fromNeighbors = neighbors.get(from)!;
       const toNeighbors = neighbors.get(to)!;
       if (from === to) continue;
       // 键盘生长和拖拽连线也会保存边缘端点，只有手动固定后才约束布局方向。
-      const hasFixedPorts = !(edge instanceof LineEdge) || edge.fixedEndpoints === true;
+      const direct = source === edge.source && target === edge.target;
+      if (direct) directEdges.push(edge);
+      const hasFixedPorts = direct && (!(edge instanceof LineEdge) || edge.fixedEndpoints === true);
       const sourceNormal = hasFixedPorts ? Edge.getNormalVectorByRate(edge.sourceRectangleRate) : null;
       const targetNormal = hasFixedPorts ? Edge.getNormalVectorByRate(edge.targetRectangleRate) : null;
       const fromDirection = sourceNormal ?? targetNormal?.multiply(-1);
@@ -374,8 +769,11 @@ export class AutoLayout {
       outgoing,
       rectangles,
       fanParents,
-      selectedRoot?.uuid,
+      new Set([...byId].filter(([, entity]) => entity instanceof Section).map(([id]) => id)),
+      (focus && getItem(focus))?.uuid ?? selectedRoot?.uuid,
+      depthOffset,
     );
+    if (layout === "mindMap") this.avoidMindMapObstacles(placements, byId, scope);
     const moved = [...placements].filter(([id, rect]) => !rect.location.equals(rectangles.get(id)!.location));
 
     const ancestors = new Set<Section>();
@@ -383,8 +781,11 @@ export class AutoLayout {
     try {
       for (const [id, rectangle] of moved) {
         const entity = byId.get(id)!;
-        for (let section = entity.parentSection; section; section = section.parentSection) ancestors.add(section);
-        entity.moveTo(rectangle.location);
+        if (recordHistory) {
+          for (let section = entity.parentSection; section; section = section.parentSection) ancestors.add(section);
+        }
+        if (entity instanceof Section) entity.moveTo(rectangle.location, new Set());
+        else entity.moveTo(rectangle.location);
       }
     } finally {
       this.project.sectionMoveDepth--;
@@ -394,11 +795,79 @@ export class AutoLayout {
     }
     const portsChanged =
       layout === "fishbone"
-        ? this.alignFishbonePorts(edges, placements)
-        : this.alignMindMapFanPorts(edges, placements, fanParents);
+        ? this.alignFishbonePorts(directEdges, placements)
+        : this.alignMindMapFanPorts(directEdges, placements, fanParents);
     const layoutChanged = this.setGraphLayout(edges, layout);
-    if (moved.length || portsChanged || layoutChanged) this.project.historyManager.recordStep();
+    if (recordHistory && (moved.length || portsChanged || layoutChanged)) {
+      if (scope && moved.length) this.fitMindMapItem(scope);
+      this.project.historyManager.recordStep();
+    }
     return true;
+  }
+
+  private avoidMindMapObstacles(
+    placements: Map<string, Rectangle>,
+    nodes: ReadonlyMap<string, ConnectableEntity>,
+    scope: Section | null,
+  ) {
+    const siblings = scope?.children ?? this.project.stageManager.getTopLevelEntities();
+    const obstacles = siblings
+      .filter(
+        (entity) =>
+          !nodes.has(entity.uuid) &&
+          !entity.isHiddenBySectionCollapse &&
+          !("isBackground" in entity && entity.isBackground),
+      )
+      .map((entity) => entity.collisionBox.getRectangle());
+    if (!obstacles.length) return;
+
+    const [anchorId, anchor] = placements.entries().next().value!;
+    const blocking =
+      nodes.get(anchorId) instanceof Section
+        ? obstacles.find((obstacle) => anchor.expandFromCenter(Section.outerMargin).isCollideWith(obstacle))
+        : undefined;
+    const offset = blocking ? this.findMindMapGroupShift(anchor, blocking, obstacles, 20) : Vector.getZero();
+    const shiftedAnchor = new Rectangle(anchor.location.add(offset), anchor.size);
+    for (const [id, bounds] of placements) {
+      const placed = new Rectangle(bounds.location.add(offset), bounds.size);
+      if (id !== anchorId) {
+        placed.location = placed.location.add(this.findMindMapGroupShift(placed, shiftedAnchor, obstacles, 20));
+      }
+      placements.set(id, placed);
+      obstacles.push(placed);
+    }
+  }
+
+  private fitMindMapItem(item: ConnectableEntity) {
+    for (let current: ConnectableEntity | null = item; current; current = current.parentSection) {
+      if (current.nearestLockedAncestorSection || (current instanceof Section && current.locked)) return;
+      if (current instanceof Section) current.adjustLocationAndSize();
+      this.avoidMindMapItemOverlap(current);
+    }
+  }
+
+  private avoidMindMapItemOverlap(item: ConnectableEntity) {
+    if (item.nearestLockedAncestorSection || (item instanceof Section && item.locked)) return;
+    const siblings = item.parentSection?.children ?? this.project.stageManager.getTopLevelEntities();
+    const bounds = item.collisionBox.getRectangle();
+    const obstacles = siblings
+      .filter(
+        (entity) =>
+          entity !== item && !entity.isHiddenBySectionCollapse && !("isBackground" in entity && entity.isBackground),
+      )
+      .map((entity) => entity.collisionBox.getRectangle());
+    const clearance = item instanceof Section ? bounds.expandFromCenter(Section.outerMargin) : bounds;
+    const blocking = obstacles.find((obstacle) => clearance.isCollideWith(obstacle));
+    if (!blocking) return;
+    const delta = this.findMindMapGroupShift(bounds, blocking, obstacles, 20);
+    this.project.sectionMoveDepth++;
+    try {
+      const location = bounds.location.add(delta);
+      if (item instanceof Section) item.moveTo(location, new Set());
+      else item.moveTo(location);
+    } finally {
+      this.project.sectionMoveDepth--;
+    }
   }
 
   private setGraphLayout(edges: Iterable<Edge>, layout?: PreservedGraphLayout): boolean {
@@ -506,7 +975,9 @@ export class AutoLayout {
     outgoing: Map<string, Set<string>>,
     rectangles: Map<string, Rectangle>,
     fanParents: Map<string, MindMapBranch>,
+    sections: ReadonlySet<string>,
     selectedRoot?: string,
+    depthOffset = 0,
   ): Map<string, Rectangle> {
     const unvisited = new Set(rectangles.keys());
     const components: { nodes: MindMapNode[]; degreeSum: number }[] = [];
@@ -532,10 +1003,20 @@ export class AutoLayout {
       if (layout === "fishbone") {
         group = layoutFishbone(new Map(nodes.map(({ id, rectangle }) => [id, rectangle])), incoming, outgoing);
       } else {
-        const { root, growthDirection } = selectedRoot
-          ? { root: nodes[0] }
+        const focus = nodes.find(({ id }) => id === selectedRoot);
+        const { root, growthDirection } = focus
+          ? { root: focus }
           : this.getMindMapRootAndDirection(nodes, neighbors, outgoing, incoming);
-        group = this.layoutMindMapComponent(root, neighbors, outgoing, rectangles, fanParents, growthDirection);
+        group = this.layoutMindMapComponent(
+          root,
+          neighbors,
+          outgoing,
+          rectangles,
+          fanParents,
+          sections,
+          depthOffset,
+          growthDirection,
+        );
       }
       const bounds = Rectangle.getBoundingRectangle([...group.values()]);
       const main = occupied[0];
@@ -619,6 +1100,8 @@ export class AutoLayout {
     outgoing: Map<string, Set<string>>,
     rectangles: Map<string, Rectangle>,
     fanParents: Map<string, MindMapBranch>,
+    sections: ReadonlySet<string>,
+    depthOffset: number,
     growthDirection?: Direction,
   ): Map<string, Rectangle> {
     const rootRect = root.rectangle;
@@ -639,6 +1122,7 @@ export class AutoLayout {
       visited.add(child);
     }
     const children = new Map<string, string[]>();
+    const parents = new Map([...groups.values()].flat().map((child) => [child, root.id]));
     // 先按距中心的层数确定父子关系，交叉连线保留在画布上。
     const pending = [...groups.values()].flat();
     for (const id of pending) {
@@ -646,6 +1130,7 @@ export class AutoLayout {
       children.set(id, branch);
       for (const child of branch) {
         visited.add(child);
+        parents.set(child, id);
         pending.push(child);
       }
     }
@@ -666,20 +1151,14 @@ export class AutoLayout {
       group.sort(crossOrder);
 
       const ordered = group.map((id) => ({ id, depth: 0 }));
-      const depthSizes: number[] = [];
       for (const { id, depth } of ordered) {
-        depthSizes[depth] = Math.max(depthSizes[depth] ?? 0, depthSize(rectangles.get(id)!));
         const branch = children.get(id)!.sort(crossOrder);
         for (const child of branch) ordered.push({ id: child, depth: depth + 1 });
       }
 
-      const rootEdge = vertical
-        ? sign > 0
-          ? rootRect.bottom
-          : rootRect.top
-        : sign > 0
-          ? rootRect.right
-          : rootRect.left;
+      const farEdge = (rect: Rectangle) =>
+        vertical ? (sign > 0 ? rect.bottom : rect.top) : sign > 0 ? rect.right : rect.left;
+      const rootEdge = farEdge(rootRect);
       if (isVerticalTree && (group.length >= 5 || ordered.some(({ id }) => children.get(id)!.length >= 5))) {
         layoutVerticalMindMap(
           root.id,
@@ -687,43 +1166,36 @@ export class AutoLayout {
           ordered.map(({ id }) => id),
           children,
           rectangles,
+          sections,
           sign,
           placements,
           fanParents,
+          depthOffset,
         );
       } else {
-        let edge = rootEdge;
-        const levels = depthSizes.map((size) => {
-          const nearEdge = edge + sign * depthGap;
-          edge = nearEdge + sign * size;
-          return nearEdge;
-        });
-        const spans = new Map<string, number>();
-        const branchSpan = (branch: string[]) =>
-          branch.reduce((span, child) => span + spans.get(child)!, 0) + Math.max(0, branch.length - 1) * branchGap;
-        for (const { id } of [...ordered].reverse()) {
-          spans.set(id, Math.max(crossSize(rectangles.get(id)!), branchSpan(children.get(id)!)));
-        }
-        const centers = new Map<string, number>();
-        const placeSiblings = (siblings: string[], center: number) => {
-          let position = center - branchSpan(siblings) / 2;
-          for (const sibling of siblings) {
-            const span = spans.get(sibling)!;
-            centers.set(sibling, position + span / 2);
-            position += span + branchGap;
-          }
-        };
-        placeSiblings(group, crossCenter(rootRect));
-        for (const { id, depth } of ordered) {
-          const center = centers.get(id)!;
-          placeSiblings(children.get(id)!, center);
+        const layouts = new Map<string, ReturnType<typeof packMindMapSiblingRows>>();
+        const nodes = [{ id: root.id, depth: -1 }, ...ordered];
+        for (const { id, depth } of [...nodes].reverse()) {
+          const siblings = id === root.id ? group : children.get(id)!;
+          const gap = branchGap * mindMapDepthScale(depthOffset + depth + 1);
+          const rows = getMindMapSiblingRows(siblings, rectangles, sections);
+          const packed = packMindMapSiblingRows(rows, layouts, gap);
           const rect = rectangles.get(id)!;
-          const along = levels[depth] - (sign < 0 ? depthSize(rect) : 0);
-          const across = center - crossSize(rect) / 2;
-          placements.set(
-            id,
-            new Rectangle(vertical ? new Vector(across, along) : new Vector(along, across), rect.size),
-          );
+          packed.width = Math.max(crossSize(rect), packed.width);
+          packed.height += depthSize(rect) + (siblings.length ? depthGap : 0);
+          layouts.set(id, packed);
+        }
+        for (const { id } of nodes) {
+          const parent = placements.get(id)!;
+          for (const [child, offset] of layouts.get(id)!.offsets) {
+            const rect = rectangles.get(child)!;
+            const along = farEdge(parent) + sign * (depthGap + offset.y) - (sign < 0 ? depthSize(rect) : 0);
+            const across = crossCenter(parent) + offset.x - crossSize(rect) / 2;
+            placements.set(
+              child,
+              new Rectangle(vertical ? new Vector(across, along) : new Vector(along, across), rect.size),
+            );
+          }
         }
       }
 
@@ -755,6 +1227,18 @@ export class AutoLayout {
       }
       const delta = vertical ? new Vector(0, shift * sign) : new Vector(shift * sign, 0);
       for (const rectangle of groupRectangles) rectangle.location = rectangle.location.add(delta);
+      if (vertical) {
+        for (const { id } of ordered) {
+          if (children.get(id)!.length || fanParents.has(id)) continue;
+          const parentId = parents.get(id)!;
+          const parent = placements.get(parentId)!;
+          const child = placements.get(id)!;
+          const gap = sign > 0 ? child.top - parent.bottom : parent.top - child.bottom;
+          if (approachesMindMapLeafVertically(child.center.x - parent.center.x, gap)) {
+            fanParents.set(id, { parentId, side: 0 });
+          }
+        }
+      }
       if (!vertical) horizontalBounds.push(new Rectangle(bounds.location.add(delta), bounds.size));
     }
     return placements;

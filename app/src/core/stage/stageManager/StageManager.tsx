@@ -550,13 +550,32 @@ export class StageManager {
    * @returns
    */
   findEntityByLocation(location: Vector): Entity | null {
-    return this.findEntityInHierarchyByLocation(
+    const hit = this.findEntityInHierarchyByLocation(
       this.topLevelEntities,
       location,
       (entity): entity is Entity => entity instanceof Entity,
       true,
       false,
     );
+    if (hit) return hit;
+
+    // 缩小时仍保留至少 6 个屏幕像素的边框命中容差。
+    const scale = this.project.camera?.currentScale ?? 1;
+    let nearestDistance = 6 / scale;
+    let nearest: Section | null = null;
+    for (const section of this.getSections()) {
+      if (section.isCollapsed || section.isHiddenBySectionCollapse) continue;
+      const distance = section.distanceToBorder(location);
+      if (
+        distance > nearestDistance ||
+        (distance === nearestDistance && nearest && section.sectionDepth < nearest.sectionDepth)
+      )
+        continue;
+      if (this.project.sectionMethods.getBigTitleCoveringAncestorSection(section)) continue;
+      nearestDistance = distance;
+      nearest = section;
+    }
+    return nearest;
   }
 
   private findEntityInHierarchyByLocation<T extends Entity>(
@@ -887,8 +906,13 @@ export class StageManager {
   //   this.project.historyManager.recordStep();
   // }
 
-  generateNodeTreeByText(text: string, indention: number = 4, location = this.project.camera.location) {
-    this.project.nodeAdder.addNodeTreeByText(text, indention, location);
+  generateNodeTreeByText(
+    text: string,
+    indention: number = 4,
+    location = this.project.camera.location,
+    mindMap = false,
+  ) {
+    this.project.nodeAdder.addNodeTreeByText(text, indention, location, mindMap);
     this.project.historyManager.recordStep();
   }
 

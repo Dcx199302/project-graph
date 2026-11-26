@@ -101,7 +101,7 @@ describe("AI layout tool schemas", () => {
   it.each([
     ["grid_horizontal", "layoutToSquare", ["horizontal"]],
     ["grid_vertical", "layoutToSquare", ["vertical"]],
-    ["mind_map", "autoLayoutGraph", ["mindMap"]],
+    ["mind_map", "formatMindMap", []],
     ["rectangle", "arrangeRectangle", []],
     ["increase_spacing", "adjustNodeSpacing", [true]],
     ["decrease_spacing", "adjustNodeSpacing", [false]],
@@ -113,7 +113,7 @@ describe("AI layout tool schemas", () => {
     const objects = new Map([first, second, selected].map((node) => [node.uuid, node]));
     const implementations = {
       layoutToSquare: vi.fn(),
-      autoLayoutGraph: vi.fn(),
+      formatMindMap: vi.fn(),
       arrangeRectangle: vi.fn(),
       adjustNodeSpacing: vi.fn(),
     };

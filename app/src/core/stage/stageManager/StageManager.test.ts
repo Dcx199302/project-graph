@@ -56,6 +56,7 @@ import { AutoLayout } from "@/core/service/controlService/autoLayoutEngine/mainT
 import { KeyboardOnlyTreeEngine } from "@/core/service/controlService/keyboardOnlyEngine/keyboardOnlyTreeEngine";
 import { AutoAlign } from "./concreteMethods/StageAutoAlignManager";
 import { EntityRenderer } from "@/core/render/canvas2d/entityRenderer/EntityRenderer";
+import { TreeImporter } from "@/core/service/dataGenerateService/stageImportEngine/TreeImporter";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -350,7 +351,7 @@ it.each([
       direction === Direction.Up
         ? source.rectangle.top - created.rectangle.bottom
         : created.rectangle.top - source.rectangle.bottom;
-    expect(distance).toBe(gap);
+    expect(distance).toBeCloseTo(gap);
   }
 });
 
@@ -497,6 +498,509 @@ function createProjectWithHistory() {
   project.sectionCollisionSolver = new SectionCollisionSolver(project);
   return project;
 }
+
+it("creates each qualifying nested group once as a tree expands past five descendants", () => {
+  const project = createProjectWithHistory();
+  project.autoLayout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  project.stageManager.add(root);
+  project.historyManager = new HistoryManager(project);
+
+  const descendants = project.autoLayout.growMindMap(
+    root,
+    Array.from({ length: 5 }, (_, index) => ({
+      text: `Node ${index}`,
+      parentIndex: index > 0 ? index - 1 : undefined,
+    })),
+  );
+  expect(project.stageManager.getSections()).toHaveLength(0);
+  project.historyManager.recordStep();
+
+  const importer = new TreeImporter(project);
+  expect(importer.importFromNode(descendants.at(-1)!.uuid, "Next\n  Last", 2)).toEqual({ success: true, nodeCount: 2 });
+  const [outer] = project.stageManager.getRootSections();
+  const inner = descendants[0].parentSection!;
+  expect(outer.children[0]).toBe(root);
+  expect(inner.parentSection).toBe(outer);
+  expect(outer.mindMapBranch).toBe(true);
+  expect(inner.mindMapBranch).toBe(true);
+  expect(root.rectangle.isCollideWith(inner.rectangle)).toBe(false);
+  expect(project.stageManager.getSections()).toHaveLength(2);
+  expect(descendants[1].getFontSize()).toBeLessThan(descendants[0].getFontSize());
+  expect(descendants[0].getFontSize()).toBeLessThan(root.getFontSize());
+  project.historyManager.recordStep();
+
+  project.autoLayout.formatMindMap(project.stageManager.getTextNodes());
+  expect(project.stageManager.getSections()).toHaveLength(2);
+  project.historyManager.undo();
+  expect(project.stageManager.getSections()).toHaveLength(0);
+  project.historyManager.redo();
+  expect(project.stageManager.getRootSections()[0].mindMapBranch).toBe(true);
+});
+
+it.each([
+  { groupedNode: "root", withNote: false },
+  { groupedNode: "branch", withNote: false },
+  { groupedNode: "root", withNote: true },
+  { groupedNode: "branch", withNote: true },
+])("reuses a manual group for the $groupedNode with note=$withNote", ({ groupedNode, withNote }) => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  const branch = new TextNode(project, { text: "Branch" });
+  branch.moveTo(new Vector(500, 0));
+  const leaves = Array.from({ length: 6 }, (_, index) => {
+    const leaf = new TextNode(project, { text: `Leaf ${index}` });
+    leaf.moveTo(new Vector(1000, index * 100));
+    return leaf;
+  });
+  const nodes = [root, branch, ...leaves];
+  const members = groupedNode === "root" ? [...leaves, branch, root] : [...leaves, branch];
+  const note = new TextNode(project, { text: "注释" });
+  if (withNote) {
+    note.moveTo(new Vector(800, 800));
+    members.push(note);
+  }
+  const manual = new Section(project, { text: "手动命名的分组", children: members });
+  const links = [
+    new LineEdge(project, { associationList: [root, branch] }),
+    ...leaves.map((leaf) => new LineEdge(project, { associationList: [branch, leaf] })),
+  ];
+  project.stage.push(...nodes, ...(withNote ? [note] : []), manual, ...links);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    expect(layout.formatMindMap(nodes)).toBe(true);
+    const sections = project.stageManager.getSections();
+    expect(sections).toHaveLength(2);
+    const automatic = sections.find((section) => section.mindMapBranch)!;
+    const outer = groupedNode === "root" ? manual : automatic;
+    const inner = groupedNode === "branch" ? manual : automatic;
+    expect(root.parentSection?.uuid).toBe(outer.uuid);
+    expect(inner.parentSection?.uuid).toBe(outer.uuid);
+    expect(branch.parentSection?.uuid).toBe(inner.uuid);
+    expect(leaves.map((leaf) => leaf.parentSection?.uuid)).toEqual(leaves.map(() => inner.uuid));
+    if (withNote) expect(note.parentSection).toBe(manual);
+    expect(manual.text).toBe("手动命名的分组");
+    expect(manual.mindMapBranch).toBeUndefined();
+  }
+});
+
+it("fits deep automatic groups from the inside out and avoids an untouched sibling group", () => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  const leaf = new TextNode(project, { text: "Leaf" });
+  const obstacle = new TextNode(project, { text: "A nearby group that extends across the new branch" });
+  const outside = new TextNode(project, { text: "Outside" });
+  leaf.moveTo(new Vector(85, 0));
+  obstacle.moveTo(new Vector(260, 0));
+  outside.moveTo(new Vector(3000, 0));
+  const inner = new Section(project, { children: [root, leaf], mindMapBranch: true });
+  const sibling = new Section(project, { children: [obstacle] });
+  const middle = new Section(project, { children: [inner, sibling], mindMapBranch: true });
+  const outer = new Section(project, { children: [middle], mindMapBranch: true });
+  project.stage.push(root, leaf, obstacle, outside, inner, sibling, middle, outer, lineEdge([root, leaf]));
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const siblingLocation = sibling.rectangle.location;
+  expect(inner.rectangle.isCollideWith(sibling.rectangle)).toBe(false);
+
+  expect(layout.formatMindMap([inner, outside])).toBe(true);
+
+  expect(leaf.rectangle.left - root.rectangle.right).toBeCloseTo(315);
+  expect(inner.rectangle.right - leaf.rectangle.right).toBeCloseTo(18);
+  expect(middle.rectangle.right - Math.max(inner.rectangle.right, sibling.rectangle.right)).toBeCloseTo(26);
+  expect(outer.rectangle.right - middle.rectangle.right).toBeCloseTo(36);
+  expect(sibling.rectangle.right - obstacle.rectangle.right).toBeCloseTo(36);
+  expect(sibling.rectangle.location).toEqual(siblingLocation);
+  expect(inner.rectangle.expandFromCenter(Section.outerMargin).isCollideWith(sibling.rectangle)).toBe(false);
+  for (const group of [inner, middle, outer]) {
+    expect(group.children.every((child) => child.collisionBox.getRectangle().isAbsoluteIn(group.rectangle))).toBe(true);
+  }
+});
+
+it.each([
+  [false, 1],
+  [false, -1],
+  [true, 1],
+  [true, -1],
+] as const)("grows larger groups farther out (vertical=%s, sign=%s)", (vertical, sign) => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  const at = (depth: number, across: number) =>
+    vertical ? new Vector(across, sign * depth) : new Vector(sign * depth, across);
+  const groups = [
+    [85, 25],
+    [100, 20],
+    [90, 35],
+    [290, 105],
+    [680, 520],
+  ].map(([depth, across], index) => {
+    const branch = new TextNode(project, { text: "Branch" });
+    const leaf = new TextNode(project, { text: "Leaf" });
+    const start = (index - 2) * 230;
+    branch.moveTo(at(1200, start));
+    leaf.moveTo(at(1200 + depth, start + across));
+    const group = new Section(project, { children: [branch, leaf] });
+    project.stage.push(branch, leaf, group, lineEdge([root, branch]), lineEdge([branch, leaf]));
+    return { group, branch, leaf, offset: leaf.rectangle.location.subtract(branch.rectangle.location) };
+  });
+  project.stage.push(root);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+
+  const selected = [root, ...groups.map(({ group }) => group)];
+  expect(layout.formatMindMap(selected)).toBe(true);
+
+  const bounds = groups.map(({ group }) => group.rectangle);
+  const nearEdge = (r: Rectangle) => (vertical ? (sign > 0 ? r.top : -r.bottom) : sign > 0 ? r.left : -r.right);
+  const farEdge = (r: Rectangle) => (vertical ? (sign > 0 ? r.bottom : -r.top) : sign > 0 ? r.right : -r.left);
+  const crossSize = (r: Rectangle) => (vertical ? r.width : r.height);
+  const small = bounds.slice(0, 3);
+  for (const rect of small) expect(nearEdge(rect) - farEdge(root.rectangle)).toBeCloseTo(vertical ? 255 : 315);
+  expect(nearEdge(bounds[3])).toBeGreaterThan(Math.max(...small.map(farEdge)));
+  expect(nearEdge(bounds[4])).toBeGreaterThan(farEdge(bounds[3]));
+  expect(crossSize(Rectangle.getBoundingRectangle(bounds))).toBeLessThan(
+    bounds.reduce((sum, rect) => sum + crossSize(rect), 0),
+  );
+  bounds.forEach((rect, index) => {
+    expect(bounds.slice(index + 1).some((other) => rect.isCollideWith(other))).toBe(false);
+    const { branch, leaf, offset } = groups[index];
+    expect(leaf.rectangle.location.subtract(branch.rectangle.location)).toEqual(offset);
+  });
+  expect(root.rectangle.location).toEqual(Vector.getZero());
+
+  expect(layout.formatMindMap(selected)).toBe(true);
+  expect(groups.map(({ group }) => group.rectangle.location)).toEqual(bounds.map((rect) => rect.location));
+});
+
+it("compacts a focused tree with nested automatic groups of different sizes", () => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  project.stage.push(root);
+  const branches = [6, 6, 18, 6].map((leafCount, index) => {
+    const branch = new TextNode(project, { text: `Branch ${index}` });
+    const y = (index - 2) * 360;
+    branch.moveTo(new Vector(1800, y));
+    project.stage.push(branch, lineEdge([root, branch]));
+    for (let index = 0; index < leafCount; index++) {
+      const leaf = new TextNode(project, { text: "Leaf" });
+      leaf.moveTo(new Vector(2400, y + (index - leafCount / 2) * 60));
+      project.stage.push(leaf, lineEdge([branch, leaf]));
+    }
+    return branch;
+  });
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+
+  expect(layout.formatMindMap([root])).toBe(true);
+
+  const [outer] = project.stageManager.getRootSections();
+  const bounds = branches.map((node) => node.parentSection!.rectangle);
+  expect(outer.children).toHaveLength(5);
+  expect(bounds[2].left).toBeGreaterThan(Math.max(bounds[0].right, bounds[1].right, bounds[3].right));
+  expect(bounds.every((rectangle) => rectangle.isAbsoluteIn(outer.rectangle))).toBe(true);
+  expect(Rectangle.getBoundingRectangle(bounds).height).toBeLessThan(
+    bounds.reduce((sum, rect) => sum + rect.height, 0),
+  );
+
+  expect(layout.formatMindMap([root])).toBe(true);
+  expect(project.stageManager.getSections()).toHaveLength(5);
+  branches.forEach((node, index) => {
+    expect(node.parentSection!.rectangle.location.distance(bounds[index].location)).toBeCloseTo(0);
+  });
+});
+
+it.each([undefined, true] as const)("reflows fully selected manual groups (auto child=%s)", (mindMapBranch) => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const makeNode = (text: string, x: number, y: number, fontScaleLevel: number) => {
+    const node = new TextNode(project, { text, fontScaleLevel });
+    node.moveTo(new Vector(x, y));
+    project.stage.push(node);
+    return node;
+  };
+  const root = makeNode("Root", 0, 0, 0);
+  const branch = makeNode("Application", 750, 0, -1);
+  const top = makeNode("Routing", 1250, -1800, -2);
+  const bottom = makeNode("Testing", 1250, 1800, -2);
+  const large = makeNode("Performance", 2400, 0, -2);
+  const leaves = Array.from({ length: 6 }, (_, index) => makeNode("Leaf", 3000, (index - 3) * 110, -2));
+  const largeGroup = new Section(project, { text: "Performance", children: [large, ...leaves], mindMapBranch });
+  const manual = new Section(project, { text: "Application", children: [branch, top, bottom, largeGroup] });
+  const outer = new Section(project, { text: "Root", children: [root, manual] });
+  project.stage.push(
+    largeGroup,
+    manual,
+    outer,
+    lineEdge([root, branch]),
+    lineEdge([branch, top]),
+    lineEdge([branch, bottom]),
+    lineEdge([branch, large]),
+    ...leaves.map((leaf) => lineEdge([large, leaf])),
+  );
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const originalGap = bottom.rectangle.top - top.rectangle.bottom;
+
+  expect(layout.formatMindMap([root, branch, top])).toBe(true);
+  expect(bottom.rectangle.top - top.rectangle.bottom).toBeCloseTo(originalGap);
+
+  expect(layout.formatMindMap(project.graphMethods.getSuccessorSet(root, true, true))).toBe(true);
+  expect(bottom.rectangle.top - top.rectangle.bottom).toBeLessThan(100);
+  expect(largeGroup.rectangle.left).toBeGreaterThan(Math.max(top.rectangle.right, bottom.rectangle.right));
+  expect(manual.parentSection).toBe(outer);
+  expect(largeGroup.rectangle.isAbsoluteIn(manual.rectangle)).toBe(true);
+  expect(project.stageManager.getSections()).toHaveLength(3);
+});
+
+it("formats an existing tree by shrinking text and sibling gaps with depth while keeping the layer gap fixed", () => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const [root, upper, lower, upperFirst, upperSecond, lowerFirst, lowerSecond] = [
+    [0, 0],
+    [400, -200],
+    [400, 200],
+    [800, -300],
+    [800, -100],
+    [800, 100],
+    [800, 300],
+  ].map(([x, y], index) => {
+    const text = index === 2 ? "A branch with a much wider label" : "Branch";
+    const node = new TextNode(project, { text, fontScaleLevel: 1 });
+    node.moveTo(new Vector(x, y));
+    return node;
+  });
+  const nodes = [root, upper, lower, upperFirst, upperSecond, lowerFirst, lowerSecond];
+  const links = [
+    [root, upper],
+    [root, lower],
+    [upper, upperFirst],
+    [upper, upperSecond],
+    [lower, lowerFirst],
+    [lower, lowerSecond],
+  ];
+  project.stage.push(...nodes, ...links.map((associationList) => new LineEdge(project, { associationList })));
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const rootFont = root.getFontSize();
+
+  expect(layout.formatMindMap(nodes)).toBe(true);
+
+  const [group] = project.stageManager.getRootSections();
+  expect(group.mindMapBranch).toBe(true);
+  expect(root.getFontSize()).toBe(rootFont);
+  expect(upper.getFontSize()).toBeLessThan(rootFont);
+  expect(upperFirst.getFontSize()).toBeLessThan(upper.getFontSize());
+  for (const [parent, child] of links) {
+    expect(child.rectangle.left - parent.rectangle.right).toBeCloseTo(315);
+  }
+  const upperBounds = Rectangle.getBoundingRectangle([upper, upperFirst, upperSecond].map((node) => node.rectangle));
+  const lowerBounds = Rectangle.getBoundingRectangle([lower, lowerFirst, lowerSecond].map((node) => node.rectangle));
+  expect(lowerBounds.top - upperBounds.bottom).toBeCloseTo(62);
+  expect(upperSecond.rectangle.top - upperFirst.rectangle.bottom).toBeCloseTo(62 * 0.88);
+
+  upperFirst.setFontScaleLevel(1);
+  expect(layout.formatMindMap([group])).toBe(true);
+  expect(upperFirst.getFontSize()).toBeLessThan(upper.getFontSize());
+  expect(project.stageManager.getRootSections()).toEqual([group]);
+});
+
+it("uses a single selected node as the center for spacing and font sizes on both sides of the links", () => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const center = new TextNode(project, { text: "中心" });
+  center.setFontScaleLevel(1);
+  const [left, right, top, bottom, leaf, unrelated] = [
+    [-500, 0],
+    [500, 0],
+    [0, -500],
+    [0, 500],
+    [950, 0],
+    [950, 950],
+  ].map(([x, y]) => {
+    const node = new TextNode(project, { text: "节点" });
+    node.moveTo(new Vector(x, y));
+    return node;
+  });
+  const links = [
+    [left, center],
+    [center, right],
+    [center, top],
+    [center, bottom],
+    [right, leaf],
+  ].map((associationList) => new LineEdge(project, { associationList }));
+  project.stage.push(center, left, right, top, bottom, leaf, unrelated, ...links);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const centerPosition = center.rectangle.location;
+  const unrelatedPosition = unrelated.rectangle.location;
+  const unrelatedSize = unrelated.getFontSize();
+
+  expect(layout.formatMindMap([center])).toBe(true);
+
+  expect(center.rectangle.location).toEqual(centerPosition);
+  expect(center.fontScaleLevel).toBe(1);
+  for (const neighbor of [left, right, top, bottom]) {
+    expect(neighbor.fontScaleLevel).toBe(0);
+    expect(neighbor.getFontSize()).toBeLessThan(center.getFontSize());
+  }
+  expect(leaf.fontScaleLevel).toBe(-1);
+  expect(leaf.getFontSize()).toBeLessThan(right.getFontSize());
+  expect(leaf.rectangle.left - right.rectangle.right).toBeCloseTo(315);
+  expect(right.rectangle.left - center.rectangle.right).toBeCloseTo(315);
+  expect(center.rectangle.left - left.rectangle.right).toBeCloseTo(315);
+  expect(center.rectangle.top - top.rectangle.bottom).toBeCloseTo(255);
+  expect(bottom.rectangle.top - center.rectangle.bottom).toBeCloseTo(255);
+  expect(links[0]).toMatchObject({ source: left, target: center });
+  expect(unrelated.rectangle.location).toEqual(unrelatedPosition);
+  expect(unrelated.getFontSize()).toBe(unrelatedSize);
+});
+
+it("updates every enclosing group when a formatted inner tree shifts to avoid a sibling", () => {
+  const project = createProjectWithHistory();
+  const layout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  const leaf = new TextNode(project, { text: "Leaf" });
+  const sibling = new TextNode(project, { text: "X" });
+  leaf.moveTo(new Vector(90, 0));
+  sibling.moveTo(new Vector(leaf.rectangle.right + Section.contentPadding + 5, 0));
+  const inner = new Section(project, { children: [root, leaf] });
+  const parent = new Section(project, { children: [inner, sibling] });
+  const outer = new Section(project, { children: [parent] });
+  const edge = new LineEdge(project, { associationList: [root, leaf] });
+  project.stage.push(root, leaf, sibling, inner, parent, outer, edge);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const before = root.rectangle.location;
+  expect(inner.rectangle.isCollideWith(sibling.rectangle)).toBe(false);
+
+  expect(layout.formatMindMap([root, leaf])).toBe(true);
+
+  expect(root.rectangle.left).toBeGreaterThan(before.x);
+  expect(inner.rectangle.isCollideWith(sibling.rectangle)).toBe(false);
+  expect(inner.rectangle.isAbsoluteIn(parent.rectangle)).toBe(true);
+  expect(parent.rectangle.isAbsoluteIn(outer.rectangle)).toBe(true);
+  expect(leaf.rectangle.isAbsoluteIn(outer.rectangle)).toBe(true);
+  const groups = [inner, parent, outer];
+  const bounds = groups.map((group) => group.rectangle);
+  project.stageManager.refreshAllStageObjects();
+  for (const [index, { rectangle }] of groups.entries()) {
+    expect(rectangle.location.distance(bounds[index].location)).toBeCloseTo(0, 8);
+    expect(rectangle.size.distance(bounds[index].size)).toBeCloseTo(0, 8);
+  }
+});
+
+it("keeps an expanded branch inside its existing group and clears a locked neighboring group", () => {
+  const project = createProjectWithHistory();
+  project.autoLayout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  const manual = new Section(project, { children: [root] });
+  const neighbor = new TextNode(project, { text: "Neighbor" });
+  neighbor.moveTo(new Vector(230, 0));
+  const locked = new Section(project, { children: [neighbor], locked: true });
+  project.stage.push(root, manual, neighbor, locked);
+  project.stageManager.updateReferences();
+  const before = locked.rectangle.clone();
+  const width = manual.rectangle.width;
+
+  const nodes = project.autoLayout.growMindMap(root, [{ text: "Child" }, { text: "Leaf", parentIndex: 0 }]);
+
+  expect(nodes.every((node) => node.parentSection === manual)).toBe(true);
+  expect(manual.rectangle.width).toBeGreaterThan(width);
+  expect(manual.rectangle.isCollideWith(locked.rectangle)).toBe(false);
+  expect(locked.rectangle).toEqual(before);
+  expect(nodes[1].rectangle.left).toBeGreaterThan(nodes[0].rectangle.right);
+});
+
+it("uses the actual AI-generated theme as the root and starts clear of existing groups", () => {
+  const project = createProjectWithHistory();
+  project.autoLayout = new AutoLayout(project);
+  const existing = new TextNode(project, { text: "Existing diagram" });
+  const group = new Section(project, { children: [existing], locked: true });
+  project.stage.push(existing, group);
+  project.stageManager.updateReferences();
+
+  new TreeImporter(project).import("Theme\n  Child\n    Detail", 2, Vector.getZero(), true);
+
+  const [, root, child, detail] = project.stageManager.getTextNodes();
+  expect([root.text, child.text, detail.text]).toEqual(["Theme", "Child", "Detail"]);
+  expect(project.graphMethods.getEdgesBetween(root, child)[0].graphLayout).toBe("mindMap");
+  expect(project.graphMethods.getEdgesBetween(child, detail)[0].graphLayout).toBe("mindMap");
+  expect([root, child, detail].every((node) => !group.rectangle.isCollideWith(node.rectangle))).toBe(true);
+});
+
+it("checks the expanded group after an automatic-width text node is edited", () => {
+  const previous = Settings.isEnableEntityCollision;
+  Settings.isEnableEntityCollision = true;
+  try {
+    const project = createProjectWithHistory();
+    Object.assign(project.syncAssociationManager, { syncFrom: vi.fn() });
+    const member = new TextNode(project, { text: "Short" });
+    const group = new Section(project, { children: [member] });
+    const neighbor = new TextNode(project, { text: "Nearby" });
+    neighbor.moveTo(new Vector(180, 0));
+    project.stage.push(group, member, neighbor);
+    project.stageManager.updateReferences();
+    const originalWidth = group.rectangle.width;
+    const originalNeighborLocation = neighbor.rectangle.location;
+
+    member.rename("A much wider member label that expands its group");
+
+    expect(group.rectangle.width).toBeGreaterThan(originalWidth);
+    expect(group.rectangle.isCollideWith(neighbor.rectangle)).toBe(false);
+    expect(neighbor.rectangle.location).not.toEqual(originalNeighborLocation);
+  } finally {
+    Settings.isEnableEntityCollision = previous;
+  }
+});
+
+it("moves a selected group as one tree item even when its members are also selected", () => {
+  const project = createProjectWithHistory();
+  project.autoLayout = new AutoLayout(project);
+  const root = new TextNode(project, { text: "Root" });
+  const first = new TextNode(project, { text: "First" });
+  const second = new TextNode(project, { text: "Second" });
+  first.moveTo(new Vector(600, 0));
+  second.moveTo(new Vector(680, 100));
+  const group = new Section(project, { children: [first, second] });
+  const edge = new LineEdge(project, { associationList: [root, first] });
+  const offset = second.rectangle.location.subtract(first.rectangle.location);
+  const position = group.rectangle.location;
+  project.stage.push(root, first, second, group, edge);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  first.isSelected = second.isSelected = group.isSelected = true;
+
+  expect(project.autoLayout.formatMindMap([root, group, first, second])).toBe(true);
+
+  expect(group.rectangle.location).not.toEqual(position);
+  expect(second.rectangle.location.subtract(first.rectangle.location)).toEqual(offset);
+  expect(group.rectangle.isCollideWith(root.rectangle)).toBe(false);
+});
+
+it.each([1, 0.1])("picks a group border within the same screen distance at zoom %s", (currentScale) => {
+  const project = createProjectWithHistory();
+  project.camera = { currentScale } as Project["camera"];
+  project.renderer = { frameIndex: 0, w: 800, h: 600 } as Project["renderer"];
+  vi.spyOn(project.sectionMethods, "isSectionBigTitleActive").mockReturnValue(false);
+  const member = new TextNode(project, { text: "Member" });
+  const group = new Section(project, { children: [member] });
+  project.stage.push(member, group);
+  project.stageManager.updateReferences();
+  const { right, center } = group.rectangle;
+
+  expect(project.stageManager.findEntityByLocation(new Vector(right + 5 / currentScale, center.y))?.uuid).toBe(
+    group.uuid,
+  );
+  const outside = right + Math.max(13, 7 / currentScale);
+  expect(project.stageManager.findEntityByLocation(new Vector(outside, center.y))?.uuid).toBeUndefined();
+  expect(project.stageManager.findEntityByLocation(member.rectangle.rightCenter)?.uuid).toBe(member.uuid);
+});
 
 it("lays out a group without pushing unrelated nodes when entity collision is enabled", () => {
   const previous = Settings.isEnableEntityCollision;
@@ -924,7 +1428,7 @@ describe("new group collisions", () => {
     const project = createProjectWithHistory();
     const member = new TextNode(project, { text: "member" });
     const neighbor = new TextNode(project, { text: "neighbor" });
-    const before = member.rectangle.right + 40;
+    const before = member.rectangle.right + 2 * Section.contentPadding + 5;
     neighbor.moveTo(new Vector(before, 0));
     const sibling = new Section(project, { text: "sibling", children: [neighbor] });
     project.stage.push(member, neighbor, sibling);
@@ -934,7 +1438,22 @@ describe("new group collisions", () => {
     const group = project.sectionPackManager.packEntityToSection([member])!;
 
     expect(neighbor.rectangle.left).toBeGreaterThan(before);
-    expect(group.rectangle.isCollideWith(sibling.rectangle)).toBe(false);
+    expect(sibling.rectangle.left - group.rectangle.right).toBeCloseTo(Section.outerMargin);
+  });
+
+  it("keeps a gap between a new group and a nearby sibling node", () => {
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "Member" });
+    const neighbor = new TextNode(project, { text: "Neighbor" });
+    neighbor.moveTo(new Vector(member.rectangle.right + Section.contentPadding + 5, 0));
+    project.stage.push(member, neighbor);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+
+    const group = project.sectionPackManager.packEntityToSection([member])!;
+
+    expect(group.rectangle.right - member.rectangle.right).toBeCloseTo(Section.contentPadding);
+    expect(neighbor.rectangle.left - group.rectangle.right).toBeCloseTo(Section.outerMargin);
   });
 
   it("checks the resized parent group when creating a nested group", () => {

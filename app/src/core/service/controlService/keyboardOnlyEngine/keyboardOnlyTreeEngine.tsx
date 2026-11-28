@@ -17,6 +17,8 @@ import { Settings } from "../../Settings";
 import { mindMapChildFontLevel } from "../autoLayoutEngine/mainTick";
 import { mindMapSpacing } from "../autoLayoutEngine/directedLayouts";
 
+const growthDirections = { right: Direction.Right, left: Direction.Left, up: Direction.Up, down: Direction.Down };
+
 /**
  * 专用于Xmind式的树形结构的键盘操作引擎
  */
@@ -382,11 +384,10 @@ export class KeyboardOnlyTreeEngine {
   ): Edge[] {
     this.project.nodeConnector.connectConnectableEntity(source, target);
     const edges = this.project.graphMethods.getEdgesBetween(source, target);
-    const directions = { right: Direction.Right, left: Direction.Left, up: Direction.Up, down: Direction.Down };
-    this.project.stageManager.changeEdgesConnectLocation(edges, directions[direction], true, false);
+    this.project.stageManager.changeEdgesConnectLocation(edges, growthDirections[direction], true, false);
     this.project.stageManager.changeEdgesConnectLocation(
       edges,
-      this.getOppositeDirection(directions[direction]),
+      this.getOppositeDirection(growthDirections[direction]),
       false,
       false,
     );
@@ -394,8 +395,17 @@ export class KeyboardOnlyTreeEngine {
     return edges;
   }
 
-  private layoutAfterGrowth(roots: ConnectableEntity[], layout?: PreservedGraphLayout): boolean {
-    if (layout) return true;
+  private shouldPreserveGroupedTreeLayout(roots: ConnectableEntity[]): boolean {
+    if (!Settings.autoLayoutWhenTreeGenerate) return false;
+    return roots.some((root) =>
+      this.project.graphMethods
+        .getSuccessorSet(root, true, true)
+        .some((node) => node instanceof Section || node.parentSection),
+    );
+  }
+
+  private layoutAfterGrowth(roots: ConnectableEntity[], preserveLayout: boolean): boolean {
+    if (preserveLayout) return true;
     if (roots.length !== 1) {
       if (Settings.autoLayoutWhenTreeGenerate) toast.warning("当前结构不符合树形结构：无法确定唯一的根节点");
       return false;
@@ -404,7 +414,7 @@ export class KeyboardOnlyTreeEngine {
     if (this.project.autoLayout.hasPreservedLayoutInTree(root)) return true;
     const validation = this.project.graphMethods.validateTreeStructure(root, true);
     if (Settings.autoLayoutWhenTreeGenerate) {
-      if (validation.isValid) this.project.autoAlign.autoLayoutSelectedFastTreeMode(root);
+      if (validation.isValid) this.project.autoLayoutFastTree.autoLayoutFastTreeMode(root);
       else showTreeValidationErrors(validation, "warning");
     }
     return validation.isValid;
@@ -453,8 +463,8 @@ export class KeyboardOnlyTreeEngine {
         const newEdges = this.connectGrowthNodes(rootNode, targetEntity, direction, layout);
         this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(rootNode, targetEntity));
         SoundService.play.treeGenerateDeepSoundFile();
-        // 连接成功后触发树形格式化布局（与新建节点逻辑一致）
-        this.layoutAfterGrowth(this.project.graphMethods.getRoots(rootNode, true), layout);
+        const roots = this.project.graphMethods.getRoots(rootNode, true);
+        this.layoutAfterGrowth(roots, !!layout || this.shouldPreserveGroupedTreeLayout(roots));
         this.project.historyManager.recordStep();
         if (editEdgeFirst && newEdges.length > 0) {
           this.project.controllerUtils.editEdgeText(newEdges[0]);
@@ -463,12 +473,15 @@ export class KeyboardOnlyTreeEngine {
       }
     }
 
-    // 先找到自己所有的第一层后继节点
-    const childSet = placement ? [] : this.project.graphMethods.getOneStepSuccessorSet(rootNode);
+    const rootNodeParents = this.project.graphMethods.getRoots(rootNode, true);
+    const preserveGroupedLayout = !placement && !layout && this.shouldPreserveGroupedTreeLayout(rootNodeParents);
+    // 含分组的普通树只放置新节点，避免整树重排把它转为思维导图。
+    const placeLocally = !!placement || preserveGroupedLayout;
+    const childSet = placeLocally ? [] : this.project.graphMethods.getOneStepSuccessorSet(rootNode);
 
     // 寻找创建位置
     let createLocation: Vector;
-    if (placement) {
+    if (placeLocally) {
       createLocation = rootNode.collisionBox.getRectangle().location;
     } else if (childSet.length === 0) {
       // 没有子节点时，在相应方向的正方向创建
@@ -549,16 +562,16 @@ export class KeyboardOnlyTreeEngine {
 
     // 设置新节点的字体大小
     newNode.setFontScaleLevel(newFontScaleLevel);
-    if (placement) {
+    if (placeLocally) {
       const vertical = direction === "up" || direction === "down";
       const gap = this.getGrowthLineEnd(rootNode, direction).distance(this.getGrowthLineStart(rootNode, direction));
       newNode.moveTo(
         this.project.nodeAdder.findDirectionalNodeLocation(
           rootNode,
-          placement.direction,
+          growthDirections[direction],
           newNode.rectangle.size,
           Math.max(48, gap) + (vertical ? 24 : 0),
-          placement.connections,
+          placement?.connections ?? this.project.graphMethods.getOutgoingEdges(rootNode),
         ),
       );
     } else if (layout) {
@@ -577,14 +590,10 @@ export class KeyboardOnlyTreeEngine {
       newNode.color = rootNode.color.clone();
     }
     const newEdges = this.connectGrowthNodes(rootNode, newNode, direction, layout);
-    if (layout === "mindMap" && Settings.autoLayoutWhenTreeGenerate) {
-      this.project.autoLayout.formatMindMap([newNode], rootNode, false);
-    }
 
-    // 重新排列树形节点
-    const rootNodeParents = this.project.graphMethods.getRoots(rootNode, true);
-    // 指定方向创建已经避开障碍，整树重排会覆盖新位置。
-    if (placement ? placement.selectCurrent : this.layoutAfterGrowth(rootNodeParents, layout)) {
+    if (
+      placement ? placement.selectCurrent : this.layoutAfterGrowth(rootNodeParents, !!layout || preserveGroupedLayout)
+    ) {
       if (rootNodeParents[0]) rootNodeParents[0].isSelected = false;
       newNode.isSelected = true;
       rootNode.isSelected = false;
@@ -719,9 +728,6 @@ export class KeyboardOnlyTreeEngine {
         newEdge.graphLayout = edge.graphLayout ?? layout;
       }
       this.project.effects.addEffects(this.project.edgeRenderer.getConnectedEffects(source, newNode));
-    }
-    if (layout === "mindMap" && parent && Settings.autoLayoutWhenTreeGenerate) {
-      this.project.autoLayout.formatMindMap([newNode], parent, false);
     }
     this.project.historyManager.recordStep();
     currentSelectNode.isSelected = false;

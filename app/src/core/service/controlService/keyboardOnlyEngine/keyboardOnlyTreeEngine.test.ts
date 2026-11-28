@@ -2,6 +2,7 @@ import type { Project } from "@/core/Project";
 import { Settings } from "@/core/service/Settings";
 import type { PreservedGraphLayout } from "@/core/stage/stageObject/association/Edge";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
+import { Section } from "@/core/stage/stageObject/entity/Section";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { Direction } from "@/types/directions";
 import { Vector } from "@graphif/data-structures";
@@ -110,10 +111,19 @@ function createGraph(graphLayout?: PreservedGraphLayout) {
       getEdgesBetween: (source: TextNode, target: TextNode) =>
         edges.filter((edge) => edge.source === source && edge.target === target),
       getRoots: () => [root],
+      getSuccessorSet: (root: TextNode) => {
+        const tree = new Set([root]);
+        for (const node of tree) {
+          for (const edge of edges) {
+            if (edge.source === node) tree.add(edge.target);
+          }
+        }
+        return [...tree];
+      },
       validateTreeStructure: () => ({ isValid: true }),
     },
     historyManager: { recordStep },
-    autoAlign: { autoLayoutSelectedFastTreeMode: fastTree },
+    autoLayoutFastTree: { autoLayoutFastTreeMode: fastTree },
     effects: { addEffects: vi.fn() },
     edgeRenderer: { getConnectedEffects: vi.fn() },
     controllerUtils: { editTextNode: vi.fn() },
@@ -173,6 +183,21 @@ it("also skips tree formatting when the growth probe connects to an existing nod
 
   expect(nodes).toHaveLength(count);
   expect(edges.at(-1)).toMatchObject({ source: jsx, target: obstacle, graphLayout: "fishbone" });
+  expect(fastTree).not.toHaveBeenCalled();
+  expect(recordStep).toHaveBeenCalledOnce();
+});
+
+it("preserves an ordinary tree when the growth probe connects it to a grouped node", () => {
+  const { nodes, edges, jsx, obstacle, engine, fastTree, recordStep, project } = createGraph();
+  const count = nodes.length;
+  obstacle.parentSection = new Section(project, { children: [obstacle] });
+  Settings.enableTreeGenerateConnectByProbe = true;
+  vi.spyOn(engine, "findConnectTargetByGrowthLine").mockReturnValue(obstacle);
+
+  engine.generateChildNode();
+
+  expect(nodes).toHaveLength(count);
+  expect(edges.at(-1)).toMatchObject({ source: jsx, target: obstacle, graphLayout: undefined });
   expect(fastTree).not.toHaveBeenCalled();
   expect(recordStep).toHaveBeenCalledOnce();
 });
@@ -238,5 +263,19 @@ it("adds a sibling above in a directed graph without moving existing nodes or du
   expect(siblingEdges.every((edge) => edge.graphLayout === "mindMap")).toBe(true);
   expect(jsx.isSelected).toBe(false);
   expect(fastTree).not.toHaveBeenCalled();
+  expect(recordStep).toHaveBeenCalledOnce();
+});
+
+it("adds a sibling in a mind map without formatting existing branches", () => {
+  const { nodes, edges, jsx, engine, project, recordStep } = createGraph("mindMap");
+  const format = vi.spyOn(project.autoLayout, "formatMindMap");
+
+  engine.generateSiblingNode();
+
+  const sibling = nodes.at(-1)!;
+  expect(sibling.isSelected).toBe(true);
+  expect(edges.at(-1)).toMatchObject({ source: nodes[0], target: sibling, graphLayout: "mindMap" });
+  expect(jsx.isSelected).toBe(false);
+  expect(format).not.toHaveBeenCalled();
   expect(recordStep).toHaveBeenCalledOnce();
 });

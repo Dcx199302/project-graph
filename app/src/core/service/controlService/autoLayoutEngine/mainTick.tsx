@@ -380,7 +380,7 @@ export class AutoLayout {
     return created;
   }
 
-  public formatMindMap(entities: ConnectableEntity[], growthRoot?: ConnectableEntity, reflow = true): boolean {
+  public formatMindMap(entities: ConnectableEntity[], growthRoot?: ConnectableEntity): boolean {
     const edges = this.project.stageManager.getEdges();
     const links = getMindMapTreeLinks(edges);
     const focus = !growthRoot && entities.length === 1 && !(entities[0] instanceof Section) ? entities[0] : undefined;
@@ -450,7 +450,7 @@ export class AutoLayout {
       entities = [...selected];
     }
 
-    const { grouped, depths, resized } = this.prepareMindMapBranches(entities, links, reflow, focusedDepths);
+    const { grouped, depths, resized } = this.prepareMindMapBranches(entities, links, focusedDepths);
     const scope = getLayoutScope(entities);
     if (
       !growthRoot &&
@@ -460,11 +460,6 @@ export class AutoLayout {
     ) {
       return this.applyGraphLayout(entities, "mindMap", edges, true, 0, focus);
     }
-    if (growthRoot && !reflow && !grouped) {
-      if (growthRoot.parentSection) this.fitMindMapItem(growthRoot.parentSection);
-      return true;
-    }
-
     const edgesByScope = new Map<Section | null, Edge[]>();
     for (const edge of edges) {
       const parent = getLayoutScope([edge.source, edge.target]);
@@ -528,7 +523,6 @@ export class AutoLayout {
   private prepareMindMapBranches(
     entities: ConnectableEntity[],
     { children, parents }: ReturnType<typeof getMindMapTreeLinks>,
-    resizeFonts: boolean,
     focusedDepths: ReadonlyMap<ConnectableEntity, number>,
   ) {
     const selected = new Set(
@@ -554,7 +548,7 @@ export class AutoLayout {
         }
       }
     };
-    if (resizeFonts && focusedDepths.size) {
+    if (focusedDepths.size) {
       const root = focusedDepths.keys().next().value;
       setFontLevels(focusedDepths.keys(), focusedDepths, root instanceof TextNode ? root.fontScaleLevel : 0);
     }
@@ -573,7 +567,7 @@ export class AutoLayout {
       }
       if (!valid) continue;
 
-      if (resizeFonts && !focusedDepths.size) {
+      if (!focusedDepths.size) {
         const rootLevel = root instanceof TextNode ? root.fontScaleLevel : 0;
         setFontLevels(tree, depths, rootLevel);
       }

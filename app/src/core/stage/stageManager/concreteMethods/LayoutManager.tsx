@@ -1,8 +1,8 @@
 import { Project, service } from "@/core/Project";
-import type { AdvancedGraphLayout } from "@/core/service/controlService/autoLayoutEngine/advancedGraphLayouts";
 import { getLayoutItem, getLayoutScope } from "@/core/stage/stageManager/basicMethods/sectionLayout";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Entity } from "@/core/stage/stageObject/abstract/StageEntity";
+import { LatexNode } from "@/core/stage/stageObject/entity/LatexNode";
 import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { Settings } from "@/core/service/Settings";
 import { Vector } from "@graphif/data-structures";
@@ -10,6 +10,12 @@ import { Rectangle } from "@graphif/shapes";
 import { Section } from "../../stageObject/entity/Section";
 
 const nodeSpacingStep = 1.12;
+
+function updateSectionBounds(sections: Set<Section>) {
+  for (const section of [...sections].sort((a, b) => b.sectionDepth - a.sectionDepth)) {
+    section.adjustLocationAndSize();
+  }
+}
 
 function getMovableLayoutItems<T extends Entity>(entities: T[], scope = getLayoutScope(entities)): (T | Section)[] {
   const items = new Set<T | Section>();
@@ -49,21 +55,20 @@ export class LayoutManager {
     return { nodes: getMovableLayoutItems(entities, scope), scope };
   }
 
-  canLayoutSelectedGraph() {
+  canLayoutSelectedTidyTree() {
     return this.getSelectedGraphItems().nodes.length >= 2;
   }
 
-  async layoutSelectedGraph(mode: AdvancedGraphLayout): Promise<"noEdges" | "notTree" | "changed" | undefined> {
+  async layoutSelectedTidyTree(): Promise<"notTree" | "changed" | undefined> {
     const run = ++this.graphLayoutRun;
     const { nodes, scope } = this.getSelectedGraphItems();
     if (nodes.length < 2) return;
 
     const nodeSet = new Set(nodes);
-    const skipDashed = mode === "tidyTree" || mode === "radialTree";
     const getEdges = () => {
       const edges = new Map<string, { source: string; target: string }>();
       for (const edge of this.project.stageManager.getEdges()) {
-        if (skipDashed && "lineType" in edge && edge.lineType === "dashed") continue;
+        if ("lineType" in edge && edge.lineType === "dashed") continue;
         const source = getLayoutItem(edge.source, scope);
         const target = getLayoutItem(edge.target, scope);
         if (!source || !target || source === target || !nodeSet.has(source) || !nodeSet.has(target)) continue;
@@ -72,11 +77,14 @@ export class LayoutManager {
       return edges;
     };
     const edges = getEdges();
-    if (edges.size === 0) return "noEdges";
+    if (edges.size === 0) return;
     const rectangles = new Map(nodes.map((node) => [node.uuid, node.collisionBox.getRectangle().clone()]));
-    const { computeAdvancedGraphLayout } =
+    const fontScaleLevels = new Map(
+      nodes.filter((node) => node instanceof TextNode).map((node) => [node.uuid, node.fontScaleLevel]),
+    );
+    const { computeTidyTreeLayout } =
       await import("@/core/service/controlService/autoLayoutEngine/advancedGraphLayouts");
-    const positions = await computeAdvancedGraphLayout(mode, rectangles, [...edges.values()]);
+    const positions = computeTidyTreeLayout(rectangles, [...edges.values()], fontScaleLevels);
     if (run !== this.graphLayoutRun) return;
     if (!positions) return "notTree";
 
@@ -90,7 +98,10 @@ export class LayoutManager {
         const before = rectangles.get(node.uuid)!;
         const rectangle = node.collisionBox.getRectangle();
         return (
-          !currentNodes.has(node) || !before.location.equals(rectangle.location) || !before.size.equals(rectangle.size)
+          !currentNodes.has(node) ||
+          !before.location.equals(rectangle.location) ||
+          !before.size.equals(rectangle.size) ||
+          (node instanceof TextNode && fontScaleLevels.get(node.uuid) !== node.fontScaleLevel)
         );
       }) ||
       currentEdges.size !== edges.size ||
@@ -98,7 +109,31 @@ export class LayoutManager {
     ) {
       return "changed";
     }
-    this.applyNodeLayout(nodes.map((node) => ({ node, location: positions.get(node.uuid)! })));
+    this.project.historyManager.batch(() => {
+      this.applyNodeLayout(nodes.map((node) => ({ node, location: positions.get(node.uuid)! })));
+      this.centerTidyTreeEndpoints(nodeSet);
+    });
+  }
+
+  private centerTidyTreeEndpoints(nodes: ReadonlySet<ConnectableEntity>) {
+    const rightCenter = new Vector(0.99, 0.5);
+    const leftCenter = new Vector(0.01, 0.5);
+    let changed = false;
+    for (const edge of this.project.stageManager.getLineEdges()) {
+      if (edge.fixedEndpoints || edge.lineType === "dashed" || !nodes.has(edge.source) || !nodes.has(edge.target)) {
+        continue;
+      }
+      if (edge.source === edge.target) continue;
+      if (edge.source.clipConnectionToBoundary && !edge.sourceRectangleRate.equals(rightCenter)) {
+        edge.sourceRectangleRate = rightCenter;
+        changed = true;
+      }
+      if (edge.target.clipConnectionToBoundary && !edge.targetRectangleRate.equals(leftCenter)) {
+        edge.targetRectangleRate = leftCenter;
+        changed = true;
+      }
+    }
+    if (changed) this.project.historyManager.recordStep();
   }
 
   canArrangeSelectedLine() {
@@ -208,17 +243,76 @@ export class LayoutManager {
 
   canAdjustSelectedNodeSpacing(increase: boolean) {
     const rectangles = this.getSelectedLayoutNodes().map((node) => node.collisionBox.getRectangle());
-    return this.getSpacingFactor(rectangles, increase) !== 1;
+    return this.getSpacingFactor(rectangles, increase, nodeSpacingStep) !== 1;
   }
 
   adjustSelectedNodeSpacing(increase: boolean) {
     this.adjustNodeSpacing(this.getSelectedLayoutNodes(), increase);
   }
 
+  adjustSelectedFontSize(increase: boolean, withSpacing = false) {
+    const selected = this.project.stageManager.getSelectedEntities();
+    if (withSpacing) {
+      this.scaleSelectedNodes(selected, increase);
+      return;
+    }
+    const nodes = selected.filter((node) => node instanceof TextNode || node instanceof LatexNode);
+    if (!nodes.length) return;
+
+    for (const node of nodes) {
+      let anchor: Vector | undefined;
+      if (node instanceof TextNode) {
+        const incoming = this.project.graphMethods.edgeParentArray(node);
+        anchor = incoming.length === 1 ? incoming[0].targetRectangleRate : Vector.same(0.5);
+      }
+      if (increase) node.increaseFontSize(anchor);
+      else node.decreaseFontSize(anchor);
+    }
+    this.project.historyManager.recordStep();
+  }
+
+  private scaleSelectedNodes(selected: Entity[], increase: boolean) {
+    const items = selected
+      .filter(
+        (node) =>
+          node instanceof ConnectableEntity &&
+          !(node instanceof Section) &&
+          !node.isHiddenBySectionCollapse &&
+          !node.nearestLockedAncestorSection,
+      )
+      .map((node) => ({ node, before: node.collisionBox.getRectangle() }));
+    if (!items.some(({ node }) => node instanceof TextNode || node instanceof LatexNode)) return;
+    const center = Rectangle.getBoundingRectangle(items.map(({ before }) => before)).center;
+    const sections = new Set<Section>();
+    // 字号和坐标一起更新，避免中间状态的分组框触发碰撞推移。
+    this.project.sectionMoveDepth++;
+    try {
+      const resized = items.map(({ node, before }) => {
+        for (let section = node.parentSection; section; section = section.parentSection) sections.add(section);
+        if (node instanceof TextNode || node instanceof LatexNode) {
+          if (increase) node.increaseFontSize();
+          else node.decreaseFontSize();
+        }
+        const size = node.collisionBox.getRectangle().size;
+        return new Rectangle(before.center.subtract(size.divide(2)), size);
+      });
+      const factor = this.getSpacingFactor(resized, increase, Math.SQRT2, 0);
+      items.forEach(({ node, before }, index) => {
+        const offset = before.center.subtract(center).multiply(factor - 1);
+        const location = resized[index].location.add(offset);
+        if (!location.equals(node.collisionBox.getRectangle().location)) node.moveTo(location);
+      });
+    } finally {
+      this.project.sectionMoveDepth--;
+      updateSectionBounds(sections);
+    }
+    this.project.historyManager.recordStep();
+  }
+
   adjustNodeSpacing(nodes: ConnectableEntity[], increase: boolean) {
     const items = getMovableLayoutItems(nodes).map((node) => ({ node, rect: node.collisionBox.getRectangle() }));
     const rectangles = items.map(({ rect }) => rect);
-    const factor = this.getSpacingFactor(rectangles, increase);
+    const factor = this.getSpacingFactor(rectangles, increase, nodeSpacingStep);
     if (factor === 1) return;
 
     const center = Rectangle.getBoundingRectangle(rectangles).center;
@@ -230,19 +324,21 @@ export class LayoutManager {
     this.applyNodeLayout(placements.map(({ node, rect }) => ({ node, location: rect.location.add(offset) })));
   }
 
-  private getSpacingFactor(rectangles: Rectangle[], increase: boolean) {
+  private getSpacingFactor(rectangles: Rectangle[], increase: boolean, step: number, gap = 12) {
     if (rectangles.length < 2) return 1;
     const centers = rectangles.map((rect) => rect.center);
-    if (increase) return centers.some((center) => !center.equals(centers[0])) ? nodeSpacingStep : 1;
+    if (increase) return centers.some((center) => !center.equals(centers[0])) ? step : 1;
 
-    const gap = 12;
-    let factor = 1 / nodeSpacingStep;
+    let factor = 1 / step;
     for (let i = 1; i < rectangles.length; i++) {
       for (let j = 0; j < i; j++) {
         const delta = centers[i].subtract(centers[j]);
         const size = rectangles[i].size.add(rectangles[j].size).divide(2);
         // 两矩形至少要在一个轴上留出边缘间距。
-        const minimum = Math.min((size.x + gap) / Math.abs(delta.x), (size.y + gap) / Math.abs(delta.y));
+        const minimum = Math.min(
+          delta.x === 0 ? Infinity : (size.x + gap) / Math.abs(delta.x),
+          delta.y === 0 ? Infinity : (size.y + gap) / Math.abs(delta.y),
+        );
         factor = Math.max(factor, minimum);
         if (factor >= 1 - 1e-9) return 1;
       }
@@ -274,8 +370,7 @@ export class LayoutManager {
       }
     } finally {
       this.project.sectionMoveDepth--;
-      for (const section of [...sections].sort((a, b) => b.sectionDepth - a.sectionDepth))
-        section.adjustLocationAndSize();
+      updateSectionBounds(sections);
     }
     for (const [parent, before] of parents) solver.solvePlacement(parent, before);
     this.project.historyManager.recordStep();

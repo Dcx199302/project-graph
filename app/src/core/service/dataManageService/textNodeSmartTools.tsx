@@ -20,17 +20,6 @@ import { v4 } from "uuid";
 
 export namespace TextNodeSmartTools {
   /**
-   * 根据指向该节点的连线计算缩放锚点：无连线则中心；仅一条则用该连线在节点上的 target 比例。
-   * 用于 Ctrl+加减号 放大缩小节点时保持锚点不动。
-   */
-  export function getAnchorRateForTextNode(project: Project, node: TextNode): Vector {
-    const incomingEdges = project.graphMethods.edgeParentArray(node);
-    if (incomingEdges.length === 0) return new Vector(0.5, 0.5);
-    if (incomingEdges.length === 1) return incomingEdges[0].targetRectangleRate.clone();
-    return new Vector(0.5, 0.5);
-  }
-
-  /**
    * 切换文本节点的宽度调整模式（ttt 快捷键）
    *
    * - auto → manual：将宽度设为「textNodeManualDefaultCharWidth」设置项指定的字符数对应的像素值

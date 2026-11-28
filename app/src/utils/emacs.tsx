@@ -146,11 +146,12 @@ const shiftedCodeKeys: Record<string, string[]> = {
  */
 export function matchSingleEmacsKey(key: string, event: KeyboardEvent | MouseEvent | WheelEvent): boolean {
   const parsedKey = parseSingleEmacsKey(key);
+  const matchesPlus = event instanceof KeyboardEvent && event.key === "+" && parsedKey.key === "=" && !parsedKey.shift;
 
   const matchModifiers =
     parsedKey.control === event.ctrlKey &&
     parsedKey.alt === event.altKey &&
-    parsedKey.shift === event.shiftKey &&
+    (matchesPlus || parsedKey.shift === event.shiftKey) &&
     parsedKey.meta === event.metaKey;
 
   let matchKey = false;
@@ -159,7 +160,7 @@ export function matchSingleEmacsKey(key: string, event: KeyboardEvent | MouseEve
     if (eventKey in transformedKeys) {
       matchKey = transformedKeys[eventKey as keyof typeof transformedKeys] === parsedKey.key;
     } else {
-      matchKey = eventKey === parsedKey.key;
+      matchKey = matchesPlus || eventKey === parsedKey.key;
     }
     // 按住 Shift 时 event.key 是上档字符（如 Shift+「-」得到「_」），
     // 导致 "C-A-S--" 这类快捷键永远无法匹配。此时退回按物理按键比对。

@@ -1,7 +1,7 @@
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 import { describe, expect, it } from "vitest";
-import { computeAdvancedGraphLayout } from "./advancedGraphLayouts";
+import { computeTidyTreeLayout } from "./advancedGraphLayouts";
 
 const rectangles = new Map([
   ["root", new Rectangle(new Vector(80, -100), new Vector(240, 80))],
@@ -15,50 +15,29 @@ const treeEdges = [
   { source: "short", target: "leaf" },
 ];
 
-describe("advanced graph layouts", () => {
-  it.each(["tidyTree", "radialTree", "layered"] as const)(
-    "places differently sized nodes without overlap in %s",
-    async (mode) => {
-      const positions = (await computeAdvancedGraphLayout(mode, rectangles, treeEdges))!;
-      expect(positions.size).toBe(rectangles.size);
-      const placed = [...positions].map(([id, location]) => new Rectangle(location, rectangles.get(id)!.size));
-      for (const [index, rectangle] of placed.entries()) {
-        for (const other of placed.slice(0, index)) expect(rectangle.isCollideWithRectangle(other)).toBe(false);
-      }
-      if (mode === "tidyTree" || mode === "radialTree") {
-        expect(positions.get("root")).toEqual(rectangles.get("root")!.location);
-      }
-      expect(await computeAdvancedGraphLayout(mode, rectangles, treeEdges)).toEqual(positions);
-    },
-  );
-
-  it("puts each tier on a separate radial ring", async () => {
-    const positions = (await computeAdvancedGraphLayout("radialTree", rectangles, treeEdges))!;
-    const center = (id: string) => new Rectangle(positions.get(id)!, rectangles.get(id)!.size).center;
-    const root = center("root");
-    expect(root.distance(center("short"))).toBeCloseTo(root.distance(center("tall")));
-    expect(root.distance(center("leaf"))).toBeGreaterThan(root.distance(center("tall")));
-  });
-
-  it("preserves direction across forks and joins in a layered graph", async () => {
-    const edges = [...treeEdges, { source: "tall", target: "leaf" }];
-    const positions = (await computeAdvancedGraphLayout("layered", rectangles, edges))!;
-    for (const { source, target } of edges) {
-      expect(positions.get(target)!.x).toBeGreaterThan(positions.get(source)!.x + rectangles.get(source)!.width);
+describe("tidy tree layout", () => {
+  it("places differently sized nodes without overlap and keeps the root in place", () => {
+    const positions = computeTidyTreeLayout(rectangles, treeEdges)!;
+    expect(positions.size).toBe(rectangles.size);
+    const placed = [...positions].map(([id, location]) => new Rectangle(location, rectangles.get(id)!.size));
+    for (const [index, rectangle] of placed.entries()) {
+      for (const other of placed.slice(0, index)) expect(rectangle.isCollideWithRectangle(other)).toBe(false);
     }
+    expect(positions.get("root")).toEqual(rectangles.get("root")!.location);
+    for (const { source, target } of treeEdges) {
+      expect(positions.get(target)!.x - positions.get(source)!.x - rectangles.get(source)!.width).toBe(150);
+    }
+    expect(computeTidyTreeLayout(rectangles, treeEdges)).toEqual(positions);
   });
 
-  it.each(["tidyTree", "radialTree"] as const)(
-    "rejects shared children and disconnected cycles in %s",
-    async (mode) => {
-      const sharedChild = [...treeEdges, { source: "tall", target: "leaf" }];
-      const cycle = [
-        { source: "root", target: "short" },
-        { source: "tall", target: "leaf" },
-        { source: "leaf", target: "tall" },
-      ];
-      await expect(computeAdvancedGraphLayout(mode, rectangles, sharedChild)).resolves.toBeUndefined();
-      await expect(computeAdvancedGraphLayout(mode, rectangles, cycle)).resolves.toBeUndefined();
-    },
-  );
+  it("rejects shared children and disconnected cycles", () => {
+    const sharedChild = [...treeEdges, { source: "tall", target: "leaf" }];
+    const cycle = [
+      { source: "root", target: "short" },
+      { source: "tall", target: "leaf" },
+      { source: "leaf", target: "tall" },
+    ];
+    expect(computeTidyTreeLayout(rectangles, sharedChild)).toBeUndefined();
+    expect(computeTidyTreeLayout(rectangles, cycle)).toBeUndefined();
+  });
 });

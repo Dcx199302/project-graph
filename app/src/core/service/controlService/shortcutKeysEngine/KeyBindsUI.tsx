@@ -236,6 +236,8 @@ export namespace KeyBindsUI {
     const toolbarDragShortcutMigrated = (await store.get<boolean>("toolbarDragShortcutMigrated")) === true;
     const directionalShortcutsMigrated = (await store.get<boolean>("directionalShortcutsMigrated")) === true;
     const reverseEdgesShortcutMigrated = (await store.get<boolean>("reverseEdgesShortcutMigrated")) === true;
+    const tidyTreeShortcutMigrated = (await store.get<boolean>("tidyTreeShortcutMigrated")) === true;
+    const fontSizeShortcutsMigrated = (await store.get<boolean>("fontSizeShortcutsMigrated")) === true;
     const previousToolbarKeys = new Map([
       ["packEntityToSection", isMac ? "M-g" : "C-g"],
       ["createTwinTextNode", "y"],
@@ -288,6 +290,12 @@ export namespace KeyBindsUI {
         (keybind.id === "checkoutLeftMouseToDrawing" && key === "b b b") ||
         (keybind.id === "generateNodeTreeWithBroadMode" && key === "\\") ||
         (!reverseEdgesShortcutMigrated && keybind.id === "reverseEdges" && key === platformKey("C-t")) ||
+        (!tidyTreeShortcutMigrated &&
+          ((keybind.id === "tidyTreeLayout" && key === "") ||
+            (keybind.id === "restoreCameraState" && key.toLowerCase() === "s-f"))) ||
+        (!fontSizeShortcutsMigrated &&
+          ((keybind.id === "increaseFontSize" && key === platformKey("C-=")) ||
+            (keybind.id === "decreaseFontSize" && key === platformKey("C--")))) ||
         (!toolbarPackShortcutMigrated && previousToolbarKey !== undefined && key === previousToolbarKey) ||
         (!toolbarGroupShortcutMigrated && keybind.id === "packEntityToSection" && key === "h") ||
         (!toolbarDragShortcutMigrated && keybind.id === "toggleMouseDragMode" && key === "")
@@ -315,6 +323,8 @@ export namespace KeyBindsUI {
     if (!toolbarDragShortcutMigrated) await store.set("toolbarDragShortcutMigrated", true);
     if (!directionalShortcutsMigrated) await store.set("directionalShortcutsMigrated", true);
     if (!reverseEdgesShortcutMigrated) await store.set("reverseEdgesShortcutMigrated", true);
+    if (!tidyTreeShortcutMigrated) await store.set("tidyTreeShortcutMigrated", true);
+    if (!fontSizeShortcutsMigrated) await store.set("fontSizeShortcutsMigrated", true);
     await store.save();
   }
   /**

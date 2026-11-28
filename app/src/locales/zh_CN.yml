@@ -56,9 +56,9 @@ projectStatus:
   emptyCanvas: 画布里没有节点
   noVisibleNodes: 当前视野内没有可见节点，点击按钮复位
   fitView: 适应视野
-  nodes: "{{count}} 节点"
-  edges: "{{count}} 连线"
-  selected: "已选 {{count}}"
+  nodes: "<number>{{count}}</number> 节点"
+  edges: "<number>{{count}}</number> 连线"
+  selected: "已选 <number>{{count}}</number>"
   saved: 已保存
   stashed: 已暂存
   unsaved: 有未保存的修改
@@ -79,9 +79,7 @@ canvasToolbar:
   penColors: 画笔颜色
   defaultPenColor: 默认色
   penColor: "{{color}}"
-  mindMapLockedSelection: 请选择可移动的节点
   layoutError:
-    noEdges: 请选择至少两个有连线的节点，或选中包含这些节点的分组框
     notTree: 请选择一棵有唯一根节点、每个子节点只有一个父节点的树
     changed: 布局期间选区或图形已变化，请重新应用布局
   actions:
@@ -1856,8 +1854,7 @@ keyBinds:
       按下后，停止摄像机飘移，并将速度置为0
   selectAll:
     title: 全选
-    description: 选中节点时，第一次选中下游节点，第二次沿连线双向选中所有关联节点。选中分组时，全选组内内容（含嵌套分组）。未选中内容时，直接全选整张画布。
-    globalSelected: 已全选整页
+    description: 选中节点时，第一次选中下游节点，第二次沿连线双向选中所有关联节点。选中分组时，全选分组及其内容（含嵌套分组）。未选中内容时，直接全选整张画布。
   selectAtCrosshair:
     title: 选择十字准心对准的节点
     description: |
@@ -1880,17 +1877,9 @@ keyBinds:
     title: AI：生成摘要
     description: |
       将选中的文本节点内容填入 AI 面板，并预置提示词用于总结核心内容
-  mindMapLayout:
-    title: 树图
   tidyTreeLayout:
     title: 整洁树布局
     description: 根据节点尺寸紧凑排列树形结构，保留根节点的位置。
-  radialTreeLayout:
-    title: 放射树布局
-    description: 按层级将子节点排在环绕根节点的同心圈上。
-  layeredGraphLayout:
-    title: 分层布局（ELK）
-    description: 按连线方向从左到右分层，适用于流程图和依赖图。
   rectangleLayout:
     title: 矩形布局
   createTextNodeFromCameraLocation:
@@ -2309,11 +2298,17 @@ keyBinds:
       仅对文本节点生效，auto模式：输入文字不能自动换行，manual模式：宽度为框的宽度，宽度超出自动换行
       默认快捷键说明：t代表transform（变换/调整）
   decreaseFontSize:
-    title: 减小选中的文本节点字体大小
-    description: 仅对文本节点生效，按下Ctrl+-减小选中的文本节点字体大小
+    title: 减小字号
+    description: 减小选中的文本和 LaTeX 节点的字号
   increaseFontSize:
-    title: 增大选中的文本节点字体大小
-    description: 仅对文本节点生效，按下Ctrl+=增大选中的文本节点字体大小
+    title: 增大字号
+    description: 增大选中的文本和 LaTeX 节点的字号
+  decreaseFontSizeAndSpacing:
+    title: 缩小字号和节点间距
+    description: 同时减小选中节点的字号和间距
+  increaseFontSizeAndSpacing:
+    title: 放大字号和节点间距
+    description: 同时增大选中节点的字号和间距
   setFontFamily:
     title: 设置字体
     description: 为选中的文本节点设置自定义 CSS font-family 字体，留空恢复默认字体

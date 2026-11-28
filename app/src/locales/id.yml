@@ -47,9 +47,9 @@ aiPanel:
     output-denied: Ditolak
 
 projectStatus:
-  nodes: "{{count}} simpul"
-  edges: "{{count}} koneksi"
-  selected: "{{count}} dipilih"
+  nodes: "<number>{{count}}</number> simpul"
+  edges: "<number>{{count}}</number> koneksi"
+  selected: "<number>{{count}}</number> dipilih"
   saved: Tersimpan
   stashed: Disimpan sementara
   unsaved: Perubahan belum disimpan
@@ -70,9 +70,7 @@ canvasToolbar:
   penColors: Warna pena
   defaultPenColor: Warna bawaan
   penColor: "{{color}}"
-  mindMapLockedSelection: Pilih simpul yang dapat dipindahkan
   layoutError:
-    noEdges: Pilih setidaknya dua simpul yang terhubung atau bagiannya
     notTree: Pilih satu pohon dengan satu akar dan satu induk per simpul anak
     changed: Pilihan atau graf berubah selama penataan. Terapkan tata letak lagi.
   actions:
@@ -2155,8 +2153,7 @@ keyBinds:
       Setelah ditekan, hentikan melayang kamera, dan atur kecepatan ke 0
   selectAll:
     title: Pilih Semua
-    description: Jika ada node terpilih, penekanan pertama memilih node hilir dan penekanan kedua mengikuti koneksi ke kedua arah untuk memilih semua node terkait. Jika ada grup terpilih, pilih isinya, termasuk grup bertingkat. Jika tidak ada pilihan, langsung pilih seluruh kanvas.
-    globalSelected: Seluruh kanvas telah dipilih
+    description: Jika ada node terpilih, penekanan pertama memilih node hilir dan penekanan kedua mengikuti koneksi ke kedua arah untuk memilih semua node terkait. Jika ada grup terpilih, pilih grup beserta isinya, termasuk grup bertingkat. Jika tidak ada pilihan, langsung pilih seluruh kanvas.
   generateTreeBySelectedTextNodeTextWithAI:
     title: "AI: Buat Struktur Pohon"
     description: |
@@ -2169,17 +2166,9 @@ keyBinds:
     title: "AI: Buat Ringkasan"
     description: |
       Isi panel AI dengan konten node teks yang dipilih dan prompt bawaan untuk meringkas inti konten.
-  mindMapLayout:
-    title: Diagram pohon
   tidyTreeLayout:
     title: Tata letak pohon rapi
     description: Susun pohon secara ringkas berdasarkan ukuran simpul dan pertahankan posisi akar.
-  radialTreeLayout:
-    title: Tata letak pohon radial
-    description: Susun simpul berdasarkan kedalaman dalam cincin yang mengelilingi akar.
-  layeredGraphLayout:
-    title: Tata letak berlapis (ELK)
-    description: Susun alur kerja dan dependensi dalam lapisan dari kiri ke kanan.
   rectangleLayout:
     title: Tata letak persegi panjang
   createTextNodeFromCameraLocation:
@@ -2547,11 +2536,17 @@ keyBinds:
       Hanya berlaku untuk node teks, mode auto: input teks tidak dapat memisah baris otomatis, mode manual: lebar adalah lebar kotak, lebihan lebar memisah baris otomatis
       Catatan tombol pintas default: t singkatan dari transform (transformasi/penyesuaian)
   decreaseFontSize:
-    title: Kurangi Ukuran Font Node Teks yang Dipilih
-    description: "Hanya berlaku untuk node teks, tekan Ctrl+- untuk mengurangi ukuran font node teks yang dipilih"
+    title: Kurangi Ukuran Font
+    description: Kurangi ukuran font node teks dan LaTeX yang dipilih.
   increaseFontSize:
-    title: Tingkatkan Ukuran Font Node Teks yang Dipilih
-    description: Hanya berlaku untuk node teks, tekan Ctrl+= untuk meningkatkan ukuran font node teks yang dipilih
+    title: Tingkatkan Ukuran Font
+    description: Tingkatkan ukuran font node teks dan LaTeX yang dipilih.
+  decreaseFontSizeAndSpacing:
+    title: Kurangi Ukuran Font dan Jarak Node
+    description: Kurangi ukuran font dan jarak antar node yang dipilih secara bersamaan.
+  increaseFontSizeAndSpacing:
+    title: Tingkatkan Ukuran Font dan Jarak Node
+    description: Tingkatkan ukuran font dan jarak antar node yang dipilih secara bersamaan.
   setFontFamily:
     title: Atur Font Family
     description: Atur CSS font-family kustom untuk node teks yang dipilih. Kosongkan untuk kembali ke font bawaan.

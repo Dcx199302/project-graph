@@ -1212,9 +1212,7 @@ export class StageManager {
       if (stage.every((object) => object.isSelected)) return "global";
       const sections = this.getSections().filter((section) => section.isSelected);
       if (sections.length > 0) {
-        const objects = this.getSectionContents(sections);
-        if (objects.size === 0) return "local";
-        this.selectAllScope = { objects, kind: "section" };
+        this.selectAllScope = { objects: this.getSectionSelection(sections), kind: "section" };
       } else {
         const objects = this.getConnectedNodes("outgoing");
         if (objects.size > 0) this.selectAllScope = { objects, kind: "downstream" };
@@ -1227,10 +1225,9 @@ export class StageManager {
     return local ? "local" : "global";
   }
 
-  private getSectionContents(sections: Section[]): Set<StageObject> {
-    const children = sections.flatMap((section) => section.children);
+  private getSectionSelection(sections: Section[]): Set<StageObject> {
     const contents = new Set<StageObject>(
-      this.project.sectionMethods.getAllEntitiesInSelectedSectionsOrEntities(children),
+      this.project.sectionMethods.getAllEntitiesInSelectedSectionsOrEntities(sections),
     );
     for (const relation of this.getAssociations()) {
       if (

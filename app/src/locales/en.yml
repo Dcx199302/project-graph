@@ -56,9 +56,9 @@ projectStatus:
   emptyCanvas: No nodes on the canvas
   noVisibleNodes: No visible nodes in this view. Click to reset.
   fitView: Fit view
-  nodes: "{{count}} nodes"
-  edges: "{{count}} edges"
-  selected: "{{count}} selected"
+  nodes: "<number>{{count}}</number> nodes"
+  edges: "<number>{{count}}</number> edges"
+  selected: "<number>{{count}}</number> selected"
   saved: Saved
   stashed: Stashed locally
   unsaved: Unsaved changes
@@ -79,9 +79,7 @@ canvasToolbar:
   penColors: Pen colors
   defaultPenColor: Default color
   penColor: "{{color}}"
-  mindMapLockedSelection: Select movable nodes
   layoutError:
-    noEdges: Select at least two connected nodes or their section
     notTree: Select one tree with a single root and one parent per child
     changed: The selection or graph changed during layout. Apply the layout again.
   actions:
@@ -1783,8 +1781,7 @@ keyBinds:
       When pressed, the camera the camera stops drifting and sets the speed to 0
   selectAll:
     title: Select All
-    description: With nodes selected, the first press selects downstream nodes and the second follows connections in both directions to select all related nodes. With a group selected, select its contents, including nested groups. With nothing selected, select the entire canvas directly.
-    globalSelected: Entire canvas selected
+    description: With nodes selected, the first press selects downstream nodes and the second follows connections in both directions to select all related nodes. With a group selected, select the group and its contents, including nested groups. With nothing selected, select the entire canvas directly.
   selectAtCrosshair:
     title: Select node at crosshair
     description: |
@@ -1807,17 +1804,9 @@ keyBinds:
     title: "AI: Summarize Selected Text"
     description: |
       Fill the AI panel with selected text nodes and a preset prompt to summarize the core content.
-  mindMapLayout:
-    title: Tree diagram
   tidyTreeLayout:
     title: Tidy tree layout
     description: Arrange a tree compactly using the size of each node and keep the root in place.
-  radialTreeLayout:
-    title: Radial tree layout
-    description: Arrange descendants in concentric rings around the root by depth.
-  layeredGraphLayout:
-    title: Layered layout (ELK)
-    description: Arrange workflows and dependencies into layers from left to right.
   rectangleLayout:
     title: Rectangular layout
   createTextNodeFromCameraLocation:
@@ -1887,10 +1876,16 @@ keyBinds:
     description: Exit the software when pressed
   decreaseFontSize:
     title: Decrease Font Size
-    description: Decrease the font size of selected text nodes. Only works on text nodes. Press Ctrl+- to decrease.
+    description: Decrease the font size of selected text and LaTeX nodes.
   increaseFontSize:
     title: Increase Font Size
-    description: Increase the font size of selected text nodes. Only works on text nodes. Press Ctrl+= to increase.
+    description: Increase the font size of selected text and LaTeX nodes.
+  decreaseFontSizeAndSpacing:
+    title: Decrease Font Size and Node Spacing
+    description: Decrease font size and spacing for the selected nodes together.
+  increaseFontSizeAndSpacing:
+    title: Increase Font Size and Node Spacing
+    description: Increase font size and spacing for the selected nodes together.
   setFontFamily:
     title: Set Font Family
     description: Set a custom CSS font-family for selected text nodes. Leave empty to reset to the default font.

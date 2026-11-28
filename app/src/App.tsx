@@ -18,7 +18,6 @@ import {
   activeTabAtom,
   isClassroomModeAtom,
   isClickThroughEnabledAtom,
-  isWindowAlwaysOnTopAtom,
   isWindowMaxsizedAtom,
   tabsAtom,
 } from "@/state";
@@ -29,9 +28,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { arch, platform, version } from "@tauri-apps/plugin-os";
 import { restoreStateCurrent, saveWindowState, StateFlags } from "@tauri-apps/plugin-window-state";
 import { useAtom } from "jotai";
-import { Copy, Minus, Pin, PinOff, Square, X } from "lucide-react";
+import { Copy, Minus, Square, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { cpuInfo } from "tauri-plugin-system-info-api";
 import CommandPalette from "./CommandPalette";
@@ -68,8 +66,6 @@ export default function App() {
 
     void getCurrentWindow().startDragging();
   };
-
-  // const { t } = useTranslation("app");
 
   useEffect(() => {
     // 设置兼容性提示依赖 Dialog UI，必须在应用挂载后再触发。
@@ -389,7 +385,6 @@ export default function App() {
               className="absolute top-0 right-3 left-[100px] z-20 h-[calc(0.5rem*var(--pg-ui-scale))] cursor-grab active:cursor-grabbing sm:h-[calc(1rem*var(--pg-ui-scale))]"
               onMouseDown={handleTitleBarMouseDown}
             />
-            {/* Native traffic lights do not follow the application's UI zoom. */}
             <div className="absolute top-[2px] left-[71px] z-20 h-7">
               <WindowButtons />
             </div>
@@ -547,100 +542,14 @@ function WindowResizeHandles() {
  * 窗口右上角的最小化，最大化，关闭等按钮
  */
 function WindowButtons() {
-  const { t } = useTranslation("windowControls");
-  const [isWindowFocused, setIsWindowFocused] = useState(false);
-  const [isNativeDark, setIsNativeDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [maximized] = useAtom(isWindowMaxsizedAtom);
   const [isClickThroughEnabled] = useAtom(isClickThroughEnabledAtom);
-  const [isWindowAlwaysOnTop, setIsWindowAlwaysOnTop] = useAtom(isWindowAlwaysOnTopAtom);
-  useEffect(() => {
-    if (!isMac) return;
-    const appWindow = getCurrentWindow();
-    let disposed = false;
-    let focusChanged = false;
-    let themeChanged = false;
-    const unlistenTheme = appWindow.onThemeChanged(({ payload }) => {
-      themeChanged = true;
-      if (!disposed) setIsNativeDark(payload === "dark");
-    });
-    void appWindow.theme().then((theme) => {
-      if (!disposed && !themeChanged && theme !== null) setIsNativeDark(theme === "dark");
-    });
-    const unlisten = appWindow.onFocusChanged(({ payload }) => {
-      focusChanged = true;
-      if (!disposed) setIsWindowFocused(payload);
-    });
-    void appWindow.isFocused().then((focused) => {
-      if (!disposed && !focusChanged) setIsWindowFocused(focused);
-    });
-    return () => {
-      disposed = true;
-      void unlisten.then((stop) => stop());
-      void unlistenTheme.then((stop) => stop());
-    };
-  }, []);
-  const checkoutWindowsAlwaysTop = async () => {
-    const tauriWindow = getCurrentWindow();
-    if (isWindowAlwaysOnTop) {
-      setIsWindowAlwaysOnTop(false);
-      await tauriWindow.setAlwaysOnTop(false);
-    } else {
-      setIsWindowAlwaysOnTop(true);
-      await tauriWindow.setAlwaysOnTop(true);
-    }
-  };
 
   return (
     <div className={cn("flex h-full items-center", !isMac && "rounded-full [&_button]:rounded-full")}>
       {isClickThroughEnabled && <span className="text-destructive font-bold">Alt + 2关闭窗口穿透点击</span>}
-      {isMac ? (
-        <span className="flex items-center pr-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="group size-7 rounded-full hover:bg-transparent dark:hover:bg-transparent"
-            aria-label={t("alwaysOnTop")}
-            aria-pressed={isWindowAlwaysOnTop}
-            title={t("alwaysOnTop")}
-            onClick={async (e) => {
-              e.stopPropagation();
-              await checkoutWindowsAlwaysTop();
-            }}
-          >
-            <span
-              className={cn(
-                "flex size-3.5 items-center justify-center rounded-full border [corner-shape:round]",
-                isWindowFocused
-                  ? "border-blue-600/30 bg-blue-400 text-blue-950 group-hover:bg-blue-300"
-                  : isNativeDark
-                    ? "border-white/10 bg-[#3b3c41] text-neutral-500"
-                    : "border-black/10 bg-[#cdced0] text-neutral-500",
-                isWindowFocused && isWindowAlwaysOnTop && "bg-blue-500 group-hover:bg-blue-400",
-              )}
-            >
-              {isWindowFocused &&
-                (isWindowAlwaysOnTop ? (
-                  <Pin className="size-2.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
-                ) : (
-                  <PinOff className="size-2.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
-                ))}
-            </span>
-          </Button>
-        </span>
-      ) : (
+      {!isMac && (
         <span className="flex h-full flex-row sm:gap-1">
-          {/* 钉住 */}
-          <Button
-            className="size-4 sm:h-full sm:w-6"
-            variant="ghost"
-            size="icon"
-            onClick={async (e) => {
-              e.stopPropagation();
-              checkoutWindowsAlwaysTop();
-            }}
-          >
-            {isWindowAlwaysOnTop ? <Pin strokeWidth={3} /> : <PinOff strokeWidth={3} className="opacity-50" />}
-          </Button>
           {/* 最小化 */}
           <Button
             className="size-4 sm:h-full sm:w-6"

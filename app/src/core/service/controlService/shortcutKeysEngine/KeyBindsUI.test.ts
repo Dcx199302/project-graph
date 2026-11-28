@@ -121,6 +121,89 @@ it.each([true, false])("migrates the old reverse-edge key once on macOS=%s", asy
   expect(KeyBindsUI.getUIKeyBind(id)).toMatchObject({ key: previousKey, isEnabled: false });
 });
 
+it("moves Shift+F from the saved camera default to tidy tree layout once", async () => {
+  const saved = new Map<string, unknown>([
+    ["restoreCameraState", { key: "S-F", isEnabled: true }],
+    ["tidyTreeLayout", { key: "", isEnabled: true }],
+  ]);
+  config.store.get.mockImplementation(async (key: string) => saved.get(key));
+  config.store.set.mockImplementation(async (key: string, value: unknown) => void saved.set(key, value));
+  const restore = vi.fn();
+  const layout = vi.fn();
+  const binding = { when: () => true, icon: Redo };
+  allKeyBinds.push(
+    { ...binding, id: "restoreCameraState", defaultKey: "", onPress: restore },
+    { ...binding, id: "tidyTreeLayout", defaultKey: "S-f", onPress: layout, isRepeatable: false },
+  );
+
+  await KeyBindsUI.registerAllUIKeyBinds();
+  expect(saved.get("restoreCameraState")).toEqual({ key: "", isEnabled: true });
+  expect(saved.get("tidyTreeLayout")).toEqual({ key: "S-f", isEnabled: true });
+  KeyBindsUI.uiStartListen();
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "F", shiftKey: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(layout).toHaveBeenCalledOnce();
+  expect(restore).not.toHaveBeenCalled();
+
+  await KeyBindsUI.changeOneUIKeyBind("tidyTreeLayout", "");
+  await KeyBindsUI.changeOneUIKeyBind("restoreCameraState", "S-f");
+  await KeyBindsUI.registerAllUIKeyBinds();
+  expect(KeyBindsUI.getUIKeyBind("tidyTreeLayout")?.key).toBe("");
+  expect(KeyBindsUI.getUIKeyBind("restoreCameraState")?.key).toBe("S-f");
+});
+
+it("migrates saved font shortcuts and keeps command presses and longer sequences distinct", async () => {
+  vi.useFakeTimers();
+  try {
+    config.isMac = true;
+    config.project = Object.create(Project.prototype);
+    const saved = new Map<string, unknown>([
+      ["increaseFontSize", { key: "M-=", isEnabled: true }],
+      ["decreaseFontSize", { key: "M--", isEnabled: true }],
+    ]);
+    config.store.get.mockImplementation(async (key: string) => saved.get(key));
+    config.store.set.mockImplementation(async (key: string, value: unknown) => void saved.set(key, value));
+    const increase = vi.fn();
+    const decrease = vi.fn();
+    const increaseBoth = vi.fn();
+    const decreaseBoth = vi.fn();
+    const filter = vi.fn();
+    const edge = vi.fn();
+    const binding = { when: () => true, icon: Redo };
+    allKeyBinds.push(
+      { ...binding, id: "increaseFontSize", defaultKey: "=", isToggle: true, onPress: increase },
+      { ...binding, id: "decreaseFontSize", defaultKey: "-", isToggle: true, onPress: decrease },
+      { ...binding, id: "increaseFontSizeAndSpacing", defaultKey: "C-=", onPress: increaseBoth },
+      { ...binding, id: "decreaseFontSizeAndSpacing", defaultKey: "C--", onPress: decreaseBoth },
+      { ...binding, id: "hideEdges", defaultKey: "- - a l l", onPress: filter },
+      { ...binding, id: "showEdges", defaultKey: "+ e d g e", onPress: edge },
+    );
+    await KeyBindsUI.registerAllUIKeyBinds();
+    expect(saved.get("increaseFontSize")).toEqual({ key: "=", isEnabled: true });
+    expect(saved.get("decreaseFontSize")).toEqual({ key: "-", isEnabled: true });
+    KeyBindsUI.uiStartListen();
+    const press = async (key: string, modifiers?: KeyboardEventInit) => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key, ...modifiers }));
+      await vi.advanceTimersByTimeAsync(0);
+    };
+
+    await press("+", { code: "Equal", shiftKey: true });
+    await press("-");
+    await vi.advanceTimersByTimeAsync(250);
+    await press("+", { code: "Equal", shiftKey: true, metaKey: true });
+    await press("-", { metaKey: true });
+    for (const key of ["-", "-", "a", "l", "l"]) await press(key);
+    for (const key of ["+", "e", "d", "g", "e"]) await press(key);
+    await vi.advanceTimersByTimeAsync(250);
+
+    for (const action of [increase, decrease, increaseBoth, decreaseBoth, filter, edge]) {
+      expect(action).toHaveBeenCalledOnce();
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("reverses a selected edge with T and preserves sequences containing T", async () => {
   vi.useFakeTimers();
   try {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Vector } from "@graphif/data-structures";
+import { Color, Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 
 vi.mock("@/core/Project", () => ({
@@ -16,9 +16,12 @@ vi.mock("@/core/render/canvas2d/renderer", () => ({
 vi.mock("@/core/service/Settings", () => ({ Settings: { watch: vi.fn(), historySize: 100 } }));
 vi.mock("@/core/service/Telemetry", () => ({ Telemetry: {} }));
 vi.mock("@/core/service/feedbackService/SoundService", () => ({
-  SoundService: { play: { associationAdjustSoundFile: vi.fn(), treeGenerateDeepSoundFile: vi.fn() } },
+  SoundService: {
+    play: { associationAdjustSoundFile: vi.fn(), treeGenerateDeepSoundFile: vi.fn(), connectLineStart: vi.fn() },
+  },
 }));
 vi.mock("@/core/stage/stageObject/entity/ReferenceBlockNode", () => ({ ReferenceBlockNode: class {} }));
+vi.mock("@/utils/platform", () => ({ isMac: false }));
 vi.mock("@/utils/font", () => ({
   getMultiLineTextSize: (text: string) => new Vector(Math.max(20, text.length * 10), text.split("\n").length * 20),
   getTextSize: () => new Vector(20, 20),
@@ -57,6 +60,7 @@ import { KeyboardOnlyTreeEngine } from "@/core/service/controlService/keyboardOn
 import { AutoAlign } from "./concreteMethods/StageAutoAlignManager";
 import { EntityRenderer } from "@/core/render/canvas2d/entityRenderer/EntityRenderer";
 import { TreeImporter } from "@/core/service/dataGenerateService/stageImportEngine/TreeImporter";
+import { ControllerNodeConnectionClass } from "@/core/service/controlService/controller/concrete/ControllerNodeConnection";
 
 function createStageManager(stage: object[]) {
   return new StageManager({ stage } as never);
@@ -187,7 +191,7 @@ describe("StageManager.selectAll", () => {
     expect(manager.getSelectedStageObjects()).toEqual([source, target, edge]);
   });
 
-  it("selects nested section contents and internal connections without selecting the outer section", () => {
+  it("selects the outer section, nested contents, and internal connections", () => {
     const project = createProjectWithHistory();
     const directChild = textNode("direct");
     const nestedChild = textNode("nested");
@@ -195,6 +199,7 @@ describe("StageManager.selectAll", () => {
     const nested = section("nested-section", [nestedChild]);
     const outer = section("outer", [directChild, nested]);
     const internal = lineEdge([directChild, nestedChild]);
+    const groupConnection = lineEdge([outer, directChild]);
     const internalUndirected = new MultiTargetUndirectedEdge(project, { associationList: [directChild, nestedChild] });
     const external = lineEdge([nestedChild, outside]);
     const spanning = new MultiTargetUndirectedEdge(project, { associationList: [directChild, nestedChild, outside] });
@@ -205,6 +210,7 @@ describe("StageManager.selectAll", () => {
       nestedChild,
       outside,
       internal,
+      groupConnection,
       internalUndirected,
       external,
       spanning,
@@ -212,11 +218,12 @@ describe("StageManager.selectAll", () => {
     outer.isSelected = true;
     nested.isCollapsed = nestedChild.isHiddenBySectionCollapse = true;
     const manager = project.stageManager;
+    const expected = [outer, directChild, nested, nestedChild, internal, groupConnection, internalUndirected];
 
     expect(manager.selectAll()).toBe("local");
-    expect(manager.getSelectedStageObjects()).toEqual([directChild, nested, nestedChild, internal, internalUndirected]);
+    expect(manager.getSelectedStageObjects()).toEqual(expected);
     expect(manager.selectAll()).toBe("local");
-    expect(manager.getSelectedStageObjects()).toEqual([directChild, nested, nestedChild, internal, internalUndirected]);
+    expect(manager.getSelectedStageObjects()).toEqual(expected);
   });
 
   it("keeps an empty section selected without expanding to the entire canvas", () => {
@@ -227,6 +234,27 @@ describe("StageManager.selectAll", () => {
 
     expect(project.stageManager.selectAll()).toBe("local");
     expect(project.stageManager.getSelectedStageObjects()).toEqual([empty]);
+  });
+
+  it("deletes the group and its selected contents in one undo step", () => {
+    const project = createProjectWithHistory();
+    const member = new TextNode(project, { text: "Member" });
+    const outside = new TextNode(project, { text: "Outside" });
+    const group = new Section(project, { children: [member] });
+    project.stage.push(member, outside, group);
+    project.stageManager.updateReferences();
+    project.historyManager = new HistoryManager(project);
+    group.isSelected = true;
+
+    project.stageManager.selectAll();
+    project.stageManager.deleteSelectedStageObjects();
+
+    expect(project.stage.map((object) => object.uuid)).toEqual([outside.uuid]);
+    project.historyManager.undo();
+    expect(project.stageManager.getSections()[0].children.map((child) => child.uuid)).toEqual([member.uuid]);
+    expect(project.historyManager.canUndo).toBe(false);
+    project.historyManager.redo();
+    expect(project.stage.map((object) => object.uuid)).toEqual([outside.uuid]);
   });
 });
 
@@ -632,6 +660,157 @@ function createProjectWithHistory() {
   project.sectionCollisionSolver = new SectionCollisionSolver(project);
   return project;
 }
+
+it.each([false, true])("adjusts selected fonts with spacing=%s and undoes the change in one step", (withSpacing) => {
+  const project = createProjectWithHistory();
+  const left = new TextNode(project, { text: "Left" });
+  const right = new TextNode(project, { text: "Right" });
+  const untouched = new TextNode(project, { text: "Untouched" });
+  right.moveTo(new Vector(240, 0));
+  untouched.moveTo(new Vector(480, 0));
+  left.isSelected = right.isSelected = true;
+  project.stage.push(left, right, untouched);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const layout = new LayoutManager(project);
+  const baseline = project.stageManager.getTextNodes().map((node) => node.rectangle.clone());
+  const font = left.getFontSize();
+  const spacing = () => right.rectangle.center.x - left.rectangle.center.x;
+  const originalSpacing = spacing();
+  const originalGap = right.rectangle.left - left.rectangle.right;
+
+  layout.adjustSelectedFontSize(true, withSpacing);
+  expect(left.getFontSize()).toBeGreaterThan(font);
+  expect(right.getFontSize()).toBe(left.getFontSize());
+  expect(untouched.getFontSize()).toBe(font);
+  expect(untouched.rectangle).toEqual(baseline[2]);
+  expect(spacing()).toBeCloseTo(originalSpacing * (withSpacing ? Math.SQRT2 : 1));
+  if (withSpacing) expect(right.rectangle.left - left.rectangle.right).toBeGreaterThan(originalGap);
+
+  project.historyManager.undo();
+  expect(project.stageManager.getTextNodes().map((node) => node.rectangle)).toEqual(baseline);
+  expect(project.stageManager.getTextNodes().map((node) => node.getFontSize())).toEqual([font, font, font]);
+  expect(project.historyManager.canUndo).toBe(false);
+});
+
+it("decreases font and spacing together", () => {
+  const project = createProjectWithHistory();
+  const left = new TextNode(project, { text: "Left" });
+  const right = new TextNode(project, { text: "Right" });
+  right.moveTo(new Vector(240, 0));
+  left.isSelected = right.isSelected = true;
+  project.stage.push(left, right);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const originalGap = right.rectangle.left - left.rectangle.right;
+  const font = left.getFontSize();
+
+  new LayoutManager(project).adjustSelectedFontSize(false, true);
+
+  expect(left.getFontSize()).toBeLessThan(font);
+  expect(right.getFontSize()).toBe(left.getFontSize());
+  expect(right.rectangle.left - left.rectangle.right).toBeLessThan(originalGap);
+  expect(right.rectangle.left - left.rectangle.right).toBeGreaterThanOrEqual(12);
+});
+
+it.each([false, true])("scales distances inside and across nested groups (increase=%s)", (increase) => {
+  const project = createProjectWithHistory();
+  const root = new TextNode(project, { text: "Root" });
+  const branch = new TextNode(project, { text: "Branch" });
+  const leaf = new TextNode(project, { text: "Leaf" });
+  const untouched = new TextNode(project, { text: "Unselected" });
+  for (const [node, x, y] of [
+    [root, 0, 0],
+    [branch, 240, -100],
+    [leaf, 520, 60],
+    [untouched, 720, 320],
+  ] as const) {
+    node.setFontScaleLevel(0);
+    node.moveTo(new Vector(x, y));
+  }
+  const inner = new Section(project, { text: "Inner", children: [leaf, untouched] });
+  const outer = new Section(project, { text: "Outer", children: [branch, inner] });
+  const nodes = [root, branch, leaf];
+  for (const node of [...nodes, inner, outer]) node.isSelected = true;
+  project.stage.push(...nodes, untouched, inner, outer, lineEdge([root, branch]), lineEdge([branch, leaf]));
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const centers = nodes.map((node) => node.rectangle.center);
+  const untouchedBefore = untouched.rectangle.clone();
+  const originalGaps = [branch.rectangle.left - root.rectangle.right, leaf.rectangle.left - branch.rectangle.right];
+
+  new LayoutManager(project).adjustSelectedFontSize(increase, true);
+
+  const factor = increase ? Math.SQRT2 : 1 / Math.SQRT2;
+  for (let index = 1; index < nodes.length; index++) {
+    const expected = centers[index].subtract(centers[index - 1]).multiply(factor);
+    const actual = nodes[index].rectangle.center.subtract(nodes[index - 1].rectangle.center);
+    expect(actual.x).toBeCloseTo(expected.x);
+    expect(actual.y).toBeCloseTo(expected.y);
+  }
+  if (!increase) {
+    expect(branch.rectangle.left - root.rectangle.right).toBeLessThan(originalGaps[0]);
+    expect(leaf.rectangle.left - branch.rectangle.right).toBeLessThan(originalGaps[1]);
+  }
+  expect(nodes.map((node) => node.fontScaleLevel)).toEqual(nodes.map(() => (increase ? 1 : -1)));
+  expect(untouched.rectangle).toEqual(untouchedBefore);
+  expect(leaf.rectangle.isAbsoluteIn(inner.rectangle)).toBe(true);
+  expect(inner.rectangle.isAbsoluteIn(outer.rectangle)).toBe(true);
+
+  project.historyManager.undo();
+  expect(nodes.map(({ uuid }) => project.stageManager.getTextNodeByUUID(uuid)?.fontScaleLevel)).toEqual([0, 0, 0]);
+  expect(project.historyManager.canUndo).toBe(false);
+});
+
+it.each([
+  { fontLevel: -3, multiple: false },
+  { fontLevel: 0, multiple: true },
+])("uses the right-drag source font level $fontLevel (multiple=$multiple)", async ({ fontLevel, multiple }) => {
+  const project = createProjectWithHistory();
+  Object.assign(project, {
+    nodeAdder: new NodeAdder(project),
+    camera: { currentScale: 0.25 },
+    controller: { setCursorName: vi.fn() },
+    controllerUtils: { textNodeInEditModeByUUID: vi.fn() },
+    renderer: { transformView2World: (location: Vector) => location },
+    edgeRenderer: { getConnectedEffects: () => [] },
+    stageStyleManager: { currentStyle: { effects: { successShadow: Color.White } } },
+  });
+  const source = new TextNode(project, { text: "New group", fontScaleLevel: fontLevel });
+  const other = new TextNode(project, { text: "Other", fontScaleLevel: 2 });
+  other.moveTo(new Vector(0, 150));
+  source.isSelected = true;
+  other.isSelected = multiple;
+  project.stage.push(other, source);
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+
+  const previousScaling = Settings.newNodeScaleByCamera;
+  const previousOffset = Settings.newNodeScaleByCameraOffset;
+  Settings.newNodeScaleByCamera = true;
+  Settings.newNodeScaleByCameraOffset = 0;
+  vi.stubGlobal("window", new EventTarget());
+  const connection = new ControllerNodeConnectionClass(project);
+  try {
+    const mouse = ({ x, y }: Vector) => ({ button: 2, clientX: x, clientY: y }) as MouseEvent;
+    const release = new Vector(400, 200);
+    connection.mousedown(mouse(source.rectangle.center));
+    connection.mouseup(mouse(release));
+
+    await vi.waitFor(() => expect(project.controllerUtils.textNodeInEditModeByUUID).toHaveBeenCalledOnce());
+    const created = project.stageManager.getTextNodes().at(-1)!;
+    expect(created.getFontSize()).toBe(source.getFontSize());
+    expect(created.rectangle.size).toEqual(source.rectangle.size);
+    expect(created.rectangle.center).toEqual(release);
+    expect(project.graphMethods.getEdgesBetween(source, created)).toHaveLength(1);
+    expect(project.graphMethods.getEdgesBetween(other, created)).toHaveLength(multiple ? 1 : 0);
+  } finally {
+    connection.dispose();
+    vi.unstubAllGlobals();
+    Settings.newNodeScaleByCamera = previousScaling;
+    Settings.newNodeScaleByCameraOffset = previousOffset;
+  }
+});
 
 it("creates each qualifying nested group once as a tree expands past five descendants", () => {
   const project = createProjectWithHistory();
@@ -1170,30 +1349,150 @@ it("lays out a group without pushing unrelated nodes when entity collision is en
   }
 });
 
-it("applies tidy tree layout to the contents of a selected section in one undo step", async () => {
+it.each([false, true])("applies tidy tree spacing in one undo step (selected section=%s)", async (inSection) => {
   const project = createProjectWithHistory();
   const root = new TextNode(project, { text: "Root" });
+  root.setFontScaleLevel(2);
   const first = new TextNode(project, { text: "First" });
   const second = new TextNode(project, { text: "Second" });
+  const leaf = new TextNode(project, { text: "Leaf" });
   const outside = new TextNode(project, { text: "Outside" });
   outside.moveTo(new Vector(-500, 0));
-  const group = new Section(project, { text: "Tree", children: [root, first, second] });
+  const nodes = [root, first, second, leaf];
+  if (inSection) {
+    const group = new Section(project, { text: "Tree", children: nodes });
+    project.stage.push(group);
+    group.isSelected = true;
+  } else {
+    for (const node of nodes) node.isSelected = true;
+  }
   const reference = lineEdge([first, second]);
   reference.lineType = "dashed";
-  project.stage.push(root, first, second, outside, group, lineEdge([root, first]), lineEdge([root, second]), reference);
+  const upper = lineEdge([root, first]);
+  upper.sourceRectangleRate = new Vector(0.5, 0.01);
+  upper.targetRectangleRate = new Vector(0.5, 0.99);
+  const lower = lineEdge([root, second]);
+  const fixed = lineEdge([first, leaf]);
+  fixed.sourceRectangleRate = new Vector(0.5, 0.99);
+  fixed.fixedEndpoints = true;
+  const external = lineEdge([outside, root]);
+  project.stage.push(...nodes, outside, upper, lower, fixed, reference, external);
   project.stageManager.updateReferences();
   project.historyManager = new HistoryManager(project);
-  group.isSelected = true;
   const layout = new LayoutManager(project);
 
-  expect(layout.canLayoutSelectedGraph()).toBe(true);
-  await expect(layout.layoutSelectedGraph("tidyTree")).resolves.toBeUndefined();
+  expect(layout.canLayoutSelectedTidyTree()).toBe(true);
+  await expect(layout.layoutSelectedTidyTree()).resolves.toBeUndefined();
   expect(root.rectangle.location).toEqual(new Vector(0, 0));
-  expect(first.rectangle.left).toBeGreaterThan(root.rectangle.right);
+  expect(first.rectangle.left - root.rectangle.right).toBe(300);
+  expect(second.rectangle.left - root.rectangle.right).toBe(300);
+  expect(leaf.rectangle.left - first.rectangle.right).toBe(150);
   expect(second.rectangle.top).toBeGreaterThan(first.rectangle.bottom);
   expect(outside.rectangle.location).toEqual(new Vector(-500, 0));
+  expect(upper.bodyLine.start).toEqual(root.rectangle.rightCenter);
+  expect(upper.bodyLine.end).toEqual(first.rectangle.leftCenter);
+  expect(lower.bodyLine.start).toEqual(root.rectangle.rightCenter);
+  expect(lower.bodyLine.end).toEqual(second.rectangle.leftCenter);
+  expect(fixed.sourceRectangleRate).toEqual(new Vector(0.5, 0.99));
+  expect(reference.sourceRectangleRate).toEqual(Vector.same(0.5));
+  expect(external.targetRectangleRate).toEqual(Vector.same(0.5));
   project.historyManager.undo();
+  expect(project.stageManager.getLineEdges()[0].sourceRectangleRate).toEqual(new Vector(0.5, 0.01));
   expect(project.historyManager.canUndo).toBe(false);
+  project.historyManager.redo();
+  expect(project.stageManager.getLineEdges()[0].sourceRectangleRate).toEqual(new Vector(0.99, 0.5));
+});
+
+it("leaves the selection in place when it contains disconnected trees or no edges", async () => {
+  const project = createProjectWithHistory();
+  const nodes = ["Root", "Child", "Other root", "Other child"].map((text, index) => {
+    const item = new TextNode(project, { text });
+    item.moveTo(new Vector(0, index * 150));
+    item.isSelected = true;
+    return item;
+  });
+  const [root, child, otherRoot, otherChild] = nodes;
+  project.stage.push(...nodes, lineEdge([root, child]), lineEdge([otherRoot, otherChild]));
+  project.stageManager.updateReferences();
+  project.historyManager = new HistoryManager(project);
+  const before = nodes.map((item) => item.rectangle.location.clone());
+  const layout = new LayoutManager(project);
+
+  await expect(layout.layoutSelectedTidyTree()).resolves.toBe("notTree");
+  child.isSelected = otherChild.isSelected = false;
+  await expect(layout.layoutSelectedTidyTree()).resolves.toBeUndefined();
+
+  expect(nodes.map((item) => item.rectangle.location)).toEqual(before);
+  expect(project.historyManager.canUndo).toBe(false);
+});
+
+it.each([
+  { location: "inside", mindMap: false, directional: false },
+  { location: "outside", mindMap: false, directional: false },
+  { location: "outside", mindMap: true, directional: false },
+  { location: "outside", mindMap: true, directional: true },
+])("$location group, mindMap=$mindMap, directional=$directional", async ({ location, mindMap, directional }) => {
+  vi.useFakeTimers();
+  const autoLayout = Settings.autoLayoutWhenTreeGenerate;
+  const probe = Settings.enableTreeGenerateConnectByProbe;
+  Settings.autoLayoutWhenTreeGenerate = true;
+  Settings.enableTreeGenerateConnectByProbe = true;
+  try {
+    const project = createDirectionalGrowthProject();
+    project.controllerUtils = { editTextNode: vi.fn() } as unknown as Project["controllerUtils"];
+    vi.spyOn(project.stageUtils, "replaceAutoNameTemplate").mockReturnValue("New child");
+    const node = (text: string, x: number, y: number) => {
+      const entity = new TextNode(project, { text });
+      entity.moveTo(new Vector(x, y));
+      return entity;
+    };
+    const root = node("Root", 0, 0);
+    const inside = node("Grouped branch", 300, 900);
+    const outside = node("Free branch", 300, 0);
+    const leaves = Array.from({ length: location === "inside" ? 6 : 5 }, (_, i) => node(`Leaf ${i}`, 650, i * 90));
+    const group = new Section(project, { text: "Manual group", children: [inside] });
+    const nodes = [root, inside, outside, ...leaves];
+    const edges = [
+      lineEdge([root, inside]),
+      lineEdge([root, outside]),
+      ...leaves.map((leaf) => lineEdge([outside, leaf])),
+    ];
+    project.stage.push(...nodes, group, ...edges);
+    project.stageManager.updateReferences();
+    for (const edge of edges) {
+      if (mindMap) edge.graphLayout = "mindMap";
+      project.stageManager.changeEdgesConnectLocation([edge], Direction.Right, true, false);
+      project.stageManager.changeEdgesConnectLocation([edge], Direction.Left, false, false);
+    }
+    project.historyManager = new HistoryManager(project);
+    const positions = nodes.map((entity) => entity.rectangle.location.clone());
+    const fontLevels = nodes.map((entity) => entity.fontScaleLevel);
+    const selected = location === "inside" ? inside : outside;
+    selected.isSelected = true;
+
+    if (directional) await project.nodeAdder.addTextNodeFromCurrentSelectedNode(Direction.Right, true);
+    else project.keyboardOnlyTreeEngine.generateChildNode("New child");
+
+    const child = project.stageManager.getTextNodes().at(-1)!;
+    expect(child.text).toBe("New child");
+    expect(child.isSelected).toBe(true);
+    expect(child.parentSection?.uuid).toBe(location === "inside" ? group.uuid : undefined);
+    expect(child.rectangle.left).toBeGreaterThan(selected.rectangle.right);
+    expect(nodes.some((entity) => entity.rectangle.isCollideWith(child.rectangle))).toBe(false);
+    expect(project.graphMethods.getEdgesBetween(selected, child)[0].graphLayout).toBe(mindMap ? "mindMap" : undefined);
+    expect(project.stageManager.getSections()).toEqual([group]);
+    expect(nodes.map((entity) => entity.rectangle.location)).toEqual(positions);
+    expect(nodes.map((entity) => entity.fontScaleLevel)).toEqual(fontLevels);
+
+    project.historyManager.undo();
+    expect(project.stageManager.getTextNodes()).toHaveLength(nodes.length);
+    expect(project.historyManager.canUndo).toBe(false);
+  } finally {
+    Settings.autoLayoutWhenTreeGenerate = autoLayout;
+    Settings.enableTreeGenerateConnectByProbe = probe;
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
 });
 
 describe("moving connected nodes", () => {

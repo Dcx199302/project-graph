@@ -17,12 +17,13 @@ import {
   GripHorizontal,
   GripVertical,
   Hand,
+  ListTree,
+  Minus,
   MousePointer2,
   Package,
   Plus,
   Rows3,
   VectorSquare,
-  WandSparkles,
 } from "lucide-react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -33,7 +34,14 @@ vi.mock("@/core/Project", () => ({ Project: class {} }));
 vi.mock("@/core/Tab", () => ({ isResourceTab: () => false }));
 vi.mock("@/core/service/controlService/shortcutKeysEngine/shortcutKeysRegister", () => ({ allKeyBinds: [] }));
 const keyBindStore = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), save: vi.fn() }));
+const platform = vi.hoisted(() => ({ isMac: false }));
 vi.mock("@/utils/store", () => ({ createStore: async () => keyBindStore }));
+vi.mock("@/utils/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/utils/platform")>()),
+  get isMac() {
+    return platform.isMac;
+  },
+}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => (key === "actions.alignTop" ? "上对齐" : key) }),
 }));
@@ -74,12 +82,10 @@ let measure: () => void;
 let project: Project;
 const align = vi.fn();
 const create = vi.fn();
-const mindMap = vi.fn();
+const tidyTree = vi.fn();
 const rectangleLayout = vi.fn();
 const arrangeVertical = vi.fn();
 const arrangeHorizontal = vi.fn();
-const increaseSpacing = vi.fn();
-const decreaseSpacing = vi.fn();
 const createTwin = vi.fn();
 const pack = vi.fn();
 const jumpBinding = {
@@ -127,6 +133,7 @@ const drawingBinding = {
 };
 
 beforeEach(async () => {
+  platform.isMac = false;
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
@@ -179,14 +186,14 @@ beforeEach(async () => {
   allKeyBinds.push(drawingBinding, jumpBinding, packBinding, twinBinding, dragBinding);
   await KeyBindsUI.registerAllUIKeyBinds();
   KeyBindsUI.registerOneUIKeyBind(
-    "mindMapLayout",
-    "",
+    "tidyTreeLayout",
+    "S-f",
     true,
-    mindMap,
+    tidyTree,
     undefined,
     undefined,
     () => selected >= 2,
-    WandSparkles,
+    ListTree,
   );
   KeyBindsUI.registerOneUIKeyBind(
     "rectangleLayout",
@@ -228,26 +235,6 @@ beforeEach(async () => {
     () => false,
     Plus,
     (current) => current === project,
-  );
-  KeyBindsUI.registerOneUIKeyBind(
-    "increaseSelectedNodeSpacing",
-    "",
-    true,
-    increaseSpacing,
-    undefined,
-    undefined,
-    () => selected >= 2,
-    DiamondPlus,
-  );
-  KeyBindsUI.registerOneUIKeyBind(
-    "decreaseSelectedNodeSpacing",
-    "",
-    true,
-    decreaseSpacing,
-    undefined,
-    undefined,
-    () => selected >= 2 && decreaseSpacing.mock.calls.length === 0,
-    DiamondMinus,
   );
   container = document.createElement("div");
   document.body.append(container);
@@ -296,8 +283,8 @@ it("reflects mode changes, applies a saved pen color and preserves selection whe
   expect(shortcuts.actionIds.has("createTextNodeFromSelectedTop")).toBe(true);
   expect(shortcuts.actionIds.has("packEntityToSection")).toBe(true);
   expect(shortcuts.numberedKeys.has("A-8")).toBe(true);
-  expect(shortcuts.numberedKeys.has("C-6")).toBe(true);
-  expect(shortcuts.numberedKeys.has("C-7")).toBe(false);
+  expect(shortcuts.numberedKeys.has("C-3")).toBe(true);
+  expect(shortcuts.numberedKeys.has("C-4")).toBe(false);
   expect(button("selectAndMove").getAttribute("aria-pressed")).toBe("true");
   await act(async () => {
     Settings.mouseLeftMode = "draw";
@@ -421,7 +408,7 @@ it("toggles drawing once per P press and preserves longer shortcuts beginning wi
   }
 });
 
-it("puts Group after Jump To and restores Twin Node to Organize with Shift+Y", async () => {
+it("puts Group after Jump To and moves the Organize actions into More", async () => {
   const saved = {
     [packBinding.id]: { key: "h", isEnabled: true },
     [twinBinding.id]: { key: "S-y", isEnabled: true },
@@ -445,9 +432,19 @@ it("puts Group after Jump To and restores Twin Node to Organize with Shift+Y", a
   ]);
   expect(packButton.querySelector("kbd")?.textContent).toBe("g");
   expect(packButton.disabled).toBe(true);
-  await act(async () => button("organize").click());
-  expect(panel("organize")!.contains(button("keyBinds:createTwinTextNode.title"))).toBe(true);
-  expect(panel("organize")!.querySelector('button[aria-label="keyBinds:packEntityToSection.title"]')).toBeNull();
+  expect(button("organize")).toBeNull();
+  await act(async () => button("more").click());
+  const more = panel("more")!;
+  for (const id of [
+    "textNodeToSection",
+    "unpackEntityFromSection",
+    "folderSection",
+    "toggleSectionLock",
+    "createTwinTextNode",
+  ]) {
+    expect(more.contains(button(`keyBinds:${id}.title`))).toBe(true);
+  }
+  expect(more.contains(packButton)).toBe(false);
   await act(async () => {
     selected = 1;
     vi.advanceTimersByTime(100);
@@ -466,6 +463,35 @@ it("puts Group after Jump To and restores Twin Node to Organize with Shift+Y", a
   expect(Settings.mouseLeftMode).toBe("selectAndMove");
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Y", shiftKey: true })));
   expect(createTwin).toHaveBeenCalledExactlyOnceWith(active);
+});
+
+it("reserves a description row in More and updates it as the mouse moves between actions", async () => {
+  await render();
+  await act(async () => button("more").click());
+  const findDescription = (popup: string) => panel(popup)?.querySelector('[data-slot="toolbar-action-description"]');
+  const description = findDescription("more")!;
+  expect(description.textContent).toBe("");
+
+  const twin = button("keyBinds:createTwinTextNode.title");
+  const lock = button("keyBinds:toggleSectionLock.title");
+  expect(twin.disabled).toBe(true);
+  const pointer = (element: Element, type: "pointerover" | "pointerout", relatedTarget?: Element) =>
+    element.dispatchEvent(new PointerEvent(type, { pointerType: "mouse", bubbles: true, relatedTarget }));
+  await act(async () => pointer(twin.parentElement!, "pointerover"));
+  expect(description.querySelector("span")?.textContent).toBe("createTwinTextNode.title");
+  expect(description.querySelector("kbd")?.textContent).toBe("shift+y");
+
+  await act(async () => KeyBindsUI.changeOneUIKeyBind("createTwinTextNode", "n"));
+  expect(description.querySelector("kbd")?.textContent).toBe("n");
+  await act(async () => pointer(twin.parentElement!, "pointerout", lock.parentElement!));
+  expect(description.querySelector("span")?.textContent).toBe("toggleSectionLock.title");
+  expect(description.querySelector("kbd")).toBeNull();
+  await act(async () => pointer(lock.parentElement!, "pointerout", description));
+  expect(description.textContent).toBe("");
+
+  await act(async () => button("align").click());
+  await act(async () => pointer(button("keyBinds:alignTop.title").parentElement!, "pointerover"));
+  expect(findDescription("align")).toBeNull();
 });
 
 it("toggles Jump To after the brush with a click or J and preserves the longer J shortcut", async () => {
@@ -786,24 +812,15 @@ it("uses Ctrl and the numbered keys for the layout menu in its displayed order",
   await ctrl("keydown", "Control", true);
   const horizontal = button("keyBinds:layoutToSquare.title");
   const vertical = button("keyBinds:layoutToSquareVertical.title");
-  const map = button("keyBinds:mindMapLayout.title");
   const rectangle = button("keyBinds:rectangleLayout.title");
-  const actions = [
-    horizontal,
-    vertical,
-    map,
-    rectangle,
-    button("keyBinds:increaseSelectedNodeSpacing.title"),
-    button("keyBinds:decreaseSelectedNodeSpacing.title"),
-  ];
+  const actions = [horizontal, vertical, rectangle];
   expect([...panel("layout")!.querySelectorAll("button")]).toEqual(actions);
-  expect(actions.map((action) => action.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
+  expect(actions.map((action) => action.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3"]);
   expect(horizontal.querySelector("svg.lucide-grip-horizontal")).not.toBeNull();
   expect(vertical.querySelector("svg.lucide-grip-vertical")).not.toBeNull();
-  expect(map.querySelector("svg.lucide-diagram-flow-vertical")).not.toBeNull();
   expect(rectangle.querySelector("svg.lucide-vector-square")).not.toBeNull();
   expect(actions.every((action) => action.disabled)).toBe(true);
-  await ctrl("keydown", "4", true);
+  await ctrl("keydown", "3", true);
   expect(rectangleLayout).not.toHaveBeenCalled();
 
   await act(async () => {
@@ -813,14 +830,13 @@ it("uses Ctrl and the numbered keys for the layout menu in its displayed order",
   expect(actions.every((action) => !action.disabled)).toBe(true);
   const existingBinding = vi.fn();
   KeyBindsUI.registerOneUIKeyBind("testExistingCtrl2", "C-2", true, existingBinding);
-  const handlers = [layoutHorizontal, layoutVertical, mindMap, rectangleLayout, increaseSpacing, decreaseSpacing];
+  const handlers = [layoutHorizontal, layoutVertical, rectangleLayout];
   try {
     for (const [index, handler] of handlers.entries()) {
       await ctrl("keydown", String(index + 1), true);
       expect(handler).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
     }
     expect(existingBinding).not.toHaveBeenCalled();
-    expect(actions.at(-1)?.disabled).toBe(true);
     expect(panel("layout")).not.toBeNull();
     await ctrl("keyup", "Control", false);
     expect(panel("layout")).toBeNull();
@@ -829,26 +845,60 @@ it("uses Ctrl and the numbered keys for the layout menu in its displayed order",
   }
 });
 
-it("keeps layout open for repeated spacing adjustments and refreshes the minimum-gap state", async () => {
+it("keeps tidy tree layout under More", async () => {
+  selected = 2;
   await render();
   await act(async () => button("layout").click());
-  const increase = button("keyBinds:increaseSelectedNodeSpacing.title");
-  const decrease = button("keyBinds:decreaseSelectedNodeSpacing.title");
-  expect(increase.querySelector("svg.lucide-diamond-plus")).not.toBeNull();
-  expect(decrease.querySelector("svg.lucide-diamond-minus")).not.toBeNull();
-  expect(increase.disabled).toBe(true);
-  expect(decrease.disabled).toBe(true);
+  expect(button("keyBinds:tidyTreeLayout.title")).toBeNull();
+  await act(async () => button("more").click());
+  const tree = panel("more")!.querySelector<HTMLButtonElement>('button[aria-label="keyBinds:tidyTreeLayout.title"]')!;
+  expect(tree.querySelector("svg.lucide-list-tree")).not.toBeNull();
+  await act(async () => tree.click());
+  expect(tidyTree).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
+});
+
+it("shows both font-size controls and their shortcuts under More", async () => {
+  platform.isMac = true;
+  const actions = [
+    ["increaseFontSizeAndSpacing", "M-=", "⌘+", DiamondPlus, "diamond-plus"],
+    ["decreaseFontSizeAndSpacing", "M--", "⌘-", DiamondMinus, "diamond-minus"],
+    ["increaseFontSize", "=", "+", Plus, "plus"],
+    ["decreaseFontSize", "-", "-", Minus, "minus"],
+  ] as const;
+  const handlers = actions.map(([id, key, , icon]) => {
+    const handler = vi.fn();
+    KeyBindsUI.registerOneUIKeyBind(id, key, true, handler, undefined, undefined, () => selected > 0, icon);
+    return handler;
+  });
+  await render();
+  await act(async () => button("layout").click());
+  for (const [id] of actions) expect(button(`keyBinds:${id}.title`)).toBeNull();
+
+  await act(async () => button("more").click());
+  const buttons = actions.map(([id, , shortcut, , icon]) => {
+    const action = button(`keyBinds:${id}.title`);
+    expect(panel("more")?.contains(action)).toBe(true);
+    expect(action.querySelector(`svg.lucide-${icon}`)).not.toBeNull();
+    expect(action.querySelector("kbd")?.textContent).toBe(shortcut);
+    expect(action.disabled).toBe(true);
+    return action;
+  });
+
   await act(async () => {
     selected = 2;
     vi.advanceTimersByTime(100);
   });
-  await act(async () => increase.click());
-  await act(async () => increase.click());
-  await act(async () => decrease.click());
-  expect(increaseSpacing).toHaveBeenCalledTimes(2);
-  expect(decreaseSpacing).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
-  expect(panel("layout")).not.toBeNull();
-  expect(decrease.disabled).toBe(true);
+  for (const [index, action] of buttons.entries()) {
+    expect(action.disabled).toBe(false);
+    await act(async () => action.click());
+    expect(handlers[index]).toHaveBeenCalledExactlyOnceWith(project, "toolbar");
+    expect(panel("more")).not.toBeNull();
+  }
+  await act(async () => KeyBindsUI.changeOneUIKeyBind("increaseFontSize", "M-k"));
+  expect(button("keyBinds:increaseFontSize.title").querySelector("kbd")?.textContent).toBe("⌘k");
+  await act(async () => {
+    for (const [id] of actions) KeyBindsUI.unregisterOneUIKeyBind(id);
+  });
 });
 
 it("hides the previous spacing row and enables both arrangements only for multiple selected nodes", async () => {

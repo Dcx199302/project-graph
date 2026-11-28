@@ -10,6 +10,7 @@ import { ConnectableEntity } from "@/core/stage/stageObject/abstract/Connectable
 import { ConnectPoint } from "@/core/stage/stageObject/entity/ConnectPoint";
 import { ImageNode } from "@/core/stage/stageObject/entity/ImageNode";
 import { Section } from "@/core/stage/stageObject/entity/Section";
+import { TextNode } from "@/core/stage/stageObject/entity/TextNode";
 import { CursorNameEnum } from "@/types/cursors";
 import { Direction } from "@/types/directions";
 import { isMac } from "@/utils/platform";
@@ -76,6 +77,7 @@ export class ControllerNodeConnectionClass extends ControllerClass {
    * 右键点击的位置，仅用于连接检测按下位置和抬起位置是否重叠
    */
   private _lastRightMousePressLocation: Vector = new Vector(0, 0);
+  private sourceFontScaleLevel?: number;
 
   private _isUsing: boolean = false;
   public get isUsing(): boolean {
@@ -196,6 +198,8 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     if (clickedConnectableEntity instanceof ImageNode && (clickedConnectableEntity as ImageNode).isBackground) {
       return;
     }
+    this.sourceFontScaleLevel =
+      clickedConnectableEntity instanceof TextNode ? clickedConnectableEntity.fontScaleLevel : undefined;
 
     // 记录起始点在图片或引用块上的精确位置
     if (
@@ -426,7 +430,10 @@ export class ControllerNodeConnectionClass extends ControllerClass {
         : undefined;
 
       const sections = this.project.sectionMethods.getSectionsByInnerLocation(releaseWorldLocation);
-      this.project.nodeAdder.addTextNodeByClick(releaseWorldLocation, sections, true, false).then((uuid) => {
+      const creation = this.project.nodeAdder.addTextNodeByClick(releaseWorldLocation, sections, true, false, {
+        overrideFontScaleLevel: this.sourceFontScaleLevel,
+      });
+      creation.then((uuid) => {
         const createdNode = this.project.stageManager.getTextNodeByUUID(uuid);
         if (!createdNode) return;
 
@@ -611,6 +618,7 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     // 重置状态
     this.connectFromEntities = [];
     this.connectToEntity = null;
+    this.sourceFontScaleLevel = undefined;
     this._isUsing = false;
     this._startImageLocation.clear();
     this._endImageLocation = null;

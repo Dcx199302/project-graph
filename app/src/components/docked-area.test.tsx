@@ -3,16 +3,20 @@
 import { Project, ProjectState } from "@/core/Project";
 import { createTabGroup, splitTabGroup } from "@/core/TabGroup";
 import { store, tabGroupRootAtom, tabsAtom } from "@/state";
+import { createInstance } from "i18next";
 import { Provider } from "jotai";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { I18nextProvider } from "react-i18next";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { parse } from "yaml";
 
 vi.mock("@/core/Project", () => ({ Project: class {}, ProjectState: { Saved: "saved" } }));
 vi.mock("@/core/Tab", () => ({ isResourceTab: () => false }));
 vi.mock("@/core/TabWorkspace", () => ({ TabWorkspace: {} }));
 vi.mock("@/utils/platform", () => ({ isMac: false }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
 vi.mock("@/ProjectTabs", () => ({
   ProjectTabs: () => (
     <div data-pg-tab-bar>
@@ -30,7 +34,12 @@ let groupRects: Record<string, DOMRect>;
 let updateLayout: () => void;
 const disconnect = vi.fn();
 const onTitleBarMouseDown = vi.fn();
-const translate = (key: string) => key;
+const i18n = createInstance();
+
+beforeAll(async () => {
+  const zh_CN = parse(readFileSync(resolve(import.meta.dirname, "../locales/zh_CN.yml"), "utf8"));
+  await i18n.init({ lng: "zh_CN", resources: { zh_CN } });
+});
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -63,18 +72,21 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 async function render() {
   await React.act(async () =>
     root.render(
       <Provider store={store}>
-        <DockedArea
-          onTabClick={vi.fn()}
-          onTabClose={vi.fn()}
-          onTitleBarMouseDown={onTitleBarMouseDown}
-          isClassroomMode={false}
-        />
+        <I18nextProvider i18n={i18n}>
+          <DockedArea
+            onTabClick={vi.fn()}
+            onTabClose={vi.fn()}
+            onTitleBarMouseDown={onTitleBarMouseDown}
+            isClassroomMode={false}
+          />
+        </I18nextProvider>
         <div data-pg-titlebar-tab-space />
       </Provider>,
     ),
@@ -155,8 +167,10 @@ it("shows zoom on an empty canvas and resets it immediately when clicked", async
   store.set(tabGroupRootAtom, createTabGroup([project.id], "main"));
   await render();
 
-  const zoom = container.querySelector<HTMLButtonElement>('button[title="keyBinds:resetCameraScale.title"]')!;
-  expect(container.textContent).toContain("emptyCanvas");
+  const zoom = container.querySelector<HTMLButtonElement>(
+    `button[title="${i18n.t("keyBinds:resetCameraScale.title")}"]`,
+  )!;
+  expect(container.textContent).toContain(i18n.t("projectStatus:emptyCanvas"));
   expect(zoom.textContent).toBe("45%");
   await React.act(async () => zoom.click());
 
@@ -165,4 +179,38 @@ it("shows zoom on an empty canvas and resets it immediately when clicked", async
   expect(camera.toggleFitView).not.toHaveBeenCalled();
   expect(resetCountdownTimer).toHaveBeenCalledOnce();
   expect(loop).toHaveBeenCalledOnce();
+});
+
+it("keeps fixed-width number slots as the status values gain digits", async () => {
+  vi.useFakeTimers();
+  let count = 9;
+  const entity = { collisionBox: { getRectangle: () => ({ width: 100, height: 100 }) } };
+  const camera = { currentScale: 0.99 };
+  const project = Object.assign(Object.create(Project.prototype), {
+    id: "project",
+    layout: "docked",
+    projectState: ProjectState.Saved,
+    getComponent: () => () => null,
+    renderer: { getCoverWorldRectangle: () => ({ isCollideWith: () => true }) },
+    stageManager: {
+      getEntities: () => Array(count).fill(entity),
+      getAssociations: () => Array(count + 1),
+      getSelectedStageObjects: () => Array(count - 1),
+    },
+    camera,
+  });
+  store.set(tabsAtom, [project]);
+  store.set(tabGroupRootAtom, createTabGroup([project.id], "main"));
+  await render();
+
+  const numbers = () => [...container.querySelectorAll('[class~="w-[6ch]"]')].map((slot) => slot.textContent);
+  const zoom = container.querySelector('[class~="w-[5ch]"]')!;
+  expect(numbers()).toEqual(["9", "10", "8"]);
+  expect(zoom.textContent).toBe("99");
+
+  count = 100;
+  camera.currentScale = 1;
+  await React.act(async () => vi.advanceTimersByTime(250));
+  expect(numbers()).toEqual(["100", "101", "99"]);
+  expect(zoom.textContent).toBe("100");
 });

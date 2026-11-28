@@ -14,7 +14,30 @@ import { useEffect, useState } from "react";
 import { cn } from "@/utils/cn";
 import { Fragment } from "react";
 import { useAtom } from "jotai";
-import { isClassroomModeAtom } from "@/state";
+import { isClassroomModeAtom, isWindowAlwaysOnTopAtom } from "@/state";
+import { isWeb } from "@/utils/platform";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Pin } from "lucide-react";
+
+function QuickSettingSwitch({
+  checked,
+  onCheckedChange,
+  isHovered,
+  label,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  isHovered: boolean;
+  label?: string;
+}) {
+  return (
+    <div
+      className={cn("overflow-hidden transition-all duration-200", isHovered ? "w-10 opacity-100" : "w-0 opacity-0")}
+    >
+      <Switch aria-label={label} checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
 
 /**
  * Boolean 类型的快捷设置项
@@ -43,13 +66,7 @@ function BooleanQuickSettingControl({
     }
   };
 
-  return (
-    <div
-      className={cn("overflow-hidden transition-all duration-200", isHovered ? "w-10 opacity-100" : "w-0 opacity-0")}
-    >
-      <Switch checked={value} onCheckedChange={handleToggle} />
-    </div>
-  );
+  return <QuickSettingSwitch checked={value} onCheckedChange={handleToggle} isHovered={isHovered} />;
 }
 
 /**
@@ -242,9 +259,17 @@ function QuickSettingButton({
  * 显示用户自定义的快捷设置项（支持开关、下拉菜单、数值调整）
  */
 export default function RightToolbar() {
+  const { t } = useTranslation("windowControls");
   const [quickSettings, setQuickSettings] = useState<QuickSettingsManager.QuickSettingItem[]>([]);
   const [isHovered, setIsHovered] = useState(false);
   const [isClassroomMode] = useAtom(isClassroomModeAtom);
+  const [isWindowAlwaysOnTop, setIsWindowAlwaysOnTop] = useAtom(isWindowAlwaysOnTopAtom);
+  const pinLabel = t("alwaysOnTop");
+
+  const setWindowAlwaysOnTop = async (checked: boolean) => {
+    await getCurrentWindow().setAlwaysOnTop(checked);
+    setIsWindowAlwaysOnTop(checked);
+  };
 
   const loadQuickSettings = async () => {
     const items = await QuickSettingsManager.getQuickSettings();
@@ -284,6 +309,35 @@ export default function RightToolbar() {
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
+        {!isWeb && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  className={cn(
+                    "opacity-50 transition-opacity hover:opacity-100",
+                    isWindowAlwaysOnTop && "opacity-100",
+                  )}
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={pinLabel}
+                  aria-pressed={isWindowAlwaysOnTop}
+                  onClick={() => setWindowAlwaysOnTop(!isWindowAlwaysOnTop)}
+                >
+                  <Pin />
+                </Button>
+                <QuickSettingSwitch
+                  label={pinLabel}
+                  isHovered={isHovered}
+                  checked={isWindowAlwaysOnTop}
+                  onCheckedChange={setWindowAlwaysOnTop}
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="left">{pinLabel}</TooltipContent>
+          </Tooltip>
+        )}
         {quickSettings.map((item) => (
           <QuickSettingButton key={item.settingKey as string} settingKey={item.settingKey} isHovered={isHovered} />
         ))}

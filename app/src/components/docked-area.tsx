@@ -8,12 +8,14 @@ import { cn } from "@/utils/cn";
 import { isMac } from "@/utils/platform";
 import { useAtomValue } from "jotai";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
+
+const statusCountKeys = ["nodes", "edges", "selected"] as const;
 
 function ProjectStatus({ project, isClassroomMode }: { project: Project; isClassroomMode: boolean }) {
   const { t } = useTranslation("projectStatus");
-  const [text, setText] = useState("");
+  const [status, setStatus] = useState({ nodes: 0, edges: 0, selected: 0, state: project.projectState });
   const [viewHint, setViewHint] = useState("");
   const [zoom, setZoom] = useState(() => Math.round(project.camera.currentScale * 100));
   const resetZoomLabel = t("keyBinds:resetCameraScale.title");
@@ -30,19 +32,26 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
       });
       setViewHint(entities.length === 0 ? t("emptyCanvas") : hasVisibleNode ? "" : t("noVisibleNodes"));
       setZoom(Math.round(project.camera.currentScale * 100));
-      const state = {
-        [ProjectState.Saved]: "saved",
-        [ProjectState.Stashed]: "stashed",
-        [ProjectState.Unsaved]: "unsaved",
-      }[project.projectState];
-      setText(
-        `${t("nodes", { count: entities.length })} · ${t("edges", { count: manager.getAssociations().length })} · ${t("selected", { count: manager.getSelectedStageObjects().length })}  |  ${t(state)}`,
+      const next = {
+        nodes: entities.length,
+        edges: manager.getAssociations().length,
+        selected: manager.getSelectedStageObjects().length,
+        state: project.projectState,
+      };
+      setStatus((previous) =>
+        previous.state === next.state && statusCountKeys.every((key) => previous[key] === next[key]) ? previous : next,
       );
     };
     update();
     const interval = window.setInterval(update, 250);
     return () => window.clearInterval(interval);
   }, [project, t]);
+
+  const state = {
+    [ProjectState.Saved]: "saved",
+    [ProjectState.Stashed]: "stashed",
+    [ProjectState.Unsaved]: "unsaved",
+  }[status.state];
 
   return (
     <div
@@ -51,12 +60,37 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
         isClassroomMode && "opacity-0",
       )}
     >
-      <span className="truncate">{viewHint || text}</span>
+      <span className="truncate">
+        {viewHint || (
+          <>
+            {statusCountKeys.map((key, index) => (
+              <React.Fragment key={key}>
+                {index > 0 && " · "}
+                <Trans
+                  t={t}
+                  i18nKey={key}
+                  count={status[key]}
+                  components={{
+                    number: (
+                      <span
+                        className="inline-block w-[6ch] truncate text-right align-bottom tabular-nums"
+                        title={String(status[key])}
+                      />
+                    ),
+                  }}
+                />
+              </React.Fragment>
+            ))}
+            {" | "}
+            {t(state)}
+          </>
+        )}
+      </span>
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="h-6 w-14 shrink-0 px-2 text-xs tabular-nums"
+        className="h-6 w-16 shrink-0 px-2 text-xs tabular-nums"
         aria-label={`${resetZoomLabel} (${zoom}%)`}
         title={resetZoomLabel}
         onClick={() => {
@@ -66,7 +100,9 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
           project.loop();
         }}
       >
-        {zoom}%
+        <span className="inline-flex items-baseline">
+          <span className="w-[5ch] truncate text-right">{zoom}</span>%
+        </span>
       </Button>
       <Button
         variant="ghost"

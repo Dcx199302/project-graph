@@ -28,6 +28,16 @@ describe("matchSingleEmacsKey", () => {
     expect(matchSingleEmacsKey("C-+", key({ ctrlKey: true, key: "=", code: "Equal" }))).toBe(false);
     expect(matchSingleEmacsKey("C-=", key({ ctrlKey: true, key: "=", code: "Equal" }))).toBe(true);
   });
+  it.each([
+    { key: "+", code: "Equal", shiftKey: true },
+    { key: "+", code: "NumpadAdd" },
+  ])("等号快捷键兼容 $code 上的加号，并区分 Command", (init) => {
+    expect(matchSingleEmacsKey("=", key(init))).toBe(true);
+    expect(matchSingleEmacsKey("M-=", key(init))).toBe(false);
+    const withCommand = key({ ...init, metaKey: true });
+    expect(matchSingleEmacsKey("=", withCommand)).toBe(false);
+    expect(matchSingleEmacsKey("M-=", withCommand)).toBe(true);
+  });
   it("C-A-S-+ 与 C-A-S-- 互不误触", () => {
     expect(matchSingleEmacsKey("C-A-S--", key({ ...cas, key: "+", code: "Equal" }))).toBe(false);
     expect(matchSingleEmacsKey("C-A-S-+", key({ ...cas, key: "_", code: "Minus" }))).toBe(false);

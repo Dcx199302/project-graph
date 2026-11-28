@@ -245,7 +245,6 @@ import {
   VectorSquare,
   View,
   Wand2,
-  WandSparkles,
   Workflow,
   Wrench,
   X,
@@ -375,6 +374,10 @@ const whenKeyboardOnlyOpenWithSelectedTextNodes: KeyBindWhen = (project) =>
   !!project &&
   project.keyboardOnlyEngine.isOpenning() &&
   project.stageManager.getSelectedEntities().some((entity) => entity instanceof TextNode);
+const whenHasFontSizeNodes = (project?: Project) =>
+  !!project &&
+  project.stageManager.getSelectedEntities().some((node) => node instanceof TextNode || node instanceof LatexNode);
+const whenCanAdjustFontSize: KeyBindWhen = (project) => whenKeyboardOnlyOpen(project) && whenHasFontSizeNodes(project);
 const whenKeyboardOnlyOpenWithSelectedSections: KeyBindWhen = (project) =>
   !!project &&
   project.keyboardOnlyEngine.isOpenning() &&
@@ -549,7 +552,7 @@ export const allKeyBinds: KeyBindItem[] = [
   },
   {
     id: "restoreCameraState",
-    defaultKey: "S-F",
+    defaultKey: "",
     icon: Camera,
     when: whenKeyboardOnlyOpen,
     onPress: (project) => {
@@ -1251,19 +1254,7 @@ export const allKeyBinds: KeyBindItem[] = [
     when: whenHasProject,
     onPress: (project) => {
       if (!project!.keyboardOnlyEngine.isOpenning()) return;
-      const scope = project!.stageManager.selectAll();
-      if (scope === "global") {
-        toast.success(
-          <div>
-            <h2>{i18next.t("keyBinds:selectAll.globalSelected")}</h2>
-            <p>
-              {project!.stageManager.getSelectedEntities().length}个实体+
-              {project!.stageManager.getSelectedAssociations().length}个关系=
-              {project!.stageManager.getSelectedStageObjects().length}个舞台对象
-            </p>
-          </div>,
-        );
-      }
+      project!.stageManager.selectAll();
       project!.effects.addEffect(ViewOutlineFlashEffect.normal(Color.Green.toNewAlpha(0.2)));
     },
   },
@@ -2136,48 +2127,16 @@ export const allKeyBinds: KeyBindItem[] = [
     }),
   },
   {
-    id: "mindMapLayout",
-    defaultKey: "",
-    icon: WandSparkles,
-    when: (project) =>
-      !!project &&
-      (whenHasMultipleSelectedConnectableEntities(project) ||
-        project.stageManager
-          .getSelectedEntities()
-          .some(
-            (node) =>
-              node instanceof ConnectableEntity &&
-              (!(node instanceof Section) || (node.mindMapBranch && !node.isCollapsed && !node.locked)),
-          )),
-    onPress: (project) => {
-      if (!project) return;
-      const entities = project.stageManager.getSelectedEntities().filter((node) => node instanceof ConnectableEntity);
-      if (!entities.length) return;
-      if (entities.some((node) => node.nearestLockedAncestorSection || (node instanceof Section && node.locked))) {
-        toast.error(i18next.t("canvasToolbar:mindMapLockedSelection"));
-        return;
-      }
-      project.autoLayout.formatMindMap(entities);
+    id: "tidyTreeLayout",
+    defaultKey: "S-f",
+    icon: ListTree,
+    isRepeatable: false,
+    when: (project) => project?.layoutManager.canLayoutSelectedTidyTree() ?? false,
+    onPress: async (project) => {
+      const error = await project?.layoutManager.layoutSelectedTidyTree();
+      if (error) toast.error(i18next.t(`canvasToolbar:layoutError.${error}`));
     },
   },
-  ...(
-    [
-      { id: "tidyTreeLayout", mode: "tidyTree", icon: ListTree },
-      { id: "radialTreeLayout", mode: "radialTree", icon: Aperture },
-      { id: "layeredGraphLayout", mode: "layered", icon: Workflow },
-    ] as const
-  ).map(
-    ({ id, mode, icon }): KeyBindItem => ({
-      id,
-      icon,
-      defaultKey: "",
-      when: (project) => project?.layoutManager.canLayoutSelectedGraph() ?? false,
-      onPress: async (project) => {
-        const error = await project?.layoutManager.layoutSelectedGraph(mode);
-        if (error) toast.error(i18next.t(`canvasToolbar:layoutError.${error}`));
-      },
-    }),
-  ),
   {
     id: "rectangleLayout",
     defaultKey: "",
@@ -3265,43 +3224,37 @@ export const allKeyBinds: KeyBindItem[] = [
   /*------- 字体大小调整 -------*/
   {
     id: "decreaseFontSize",
-    defaultKey: "C--",
+    defaultKey: "-",
     icon: Shrink,
-    when: whenKeyboardOnlyOpenWithSelectedTextNodes,
-    onPress: (project) => {
-      if (!project!.keyboardOnlyEngine.isOpenning()) return;
-      const selectedNodes = project!.stageManager.getSelectedEntities();
-      const textNodes = selectedNodes.filter((node) => node instanceof TextNode) as TextNode[];
-      const latexNodes = selectedNodes.filter((node) => node instanceof LatexNode) as LatexNode[];
-      if (textNodes.length === 0 && latexNodes.length === 0) return;
-      for (const node of textNodes) {
-        node.decreaseFontSize(TextNodeSmartTools.getAnchorRateForTextNode(project!, node));
-      }
-      for (const node of latexNodes) {
-        node.decreaseFontSize();
-      }
-      project!.historyManager.recordStep();
-    },
+    isToggle: true,
+    when: whenCanAdjustFontSize,
+    toolbarWhen: whenHasFontSizeNodes,
+    onPress: (project) => project?.layoutManager.adjustSelectedFontSize(false),
   },
   {
     id: "increaseFontSize",
+    defaultKey: "=",
+    icon: Expand,
+    isToggle: true,
+    when: whenCanAdjustFontSize,
+    toolbarWhen: whenHasFontSizeNodes,
+    onPress: (project) => project?.layoutManager.adjustSelectedFontSize(true),
+  },
+  {
+    id: "decreaseFontSizeAndSpacing",
+    defaultKey: "C--",
+    icon: Shrink,
+    when: whenCanAdjustFontSize,
+    toolbarWhen: whenHasFontSizeNodes,
+    onPress: (project) => project?.layoutManager.adjustSelectedFontSize(false, true),
+  },
+  {
+    id: "increaseFontSizeAndSpacing",
     defaultKey: "C-=",
     icon: Expand,
-    when: whenKeyboardOnlyOpenWithSelectedTextNodes,
-    onPress: (project) => {
-      if (!project!.keyboardOnlyEngine.isOpenning()) return;
-      const selectedNodes = project!.stageManager.getSelectedEntities();
-      const textNodes = selectedNodes.filter((node) => node instanceof TextNode) as TextNode[];
-      const latexNodes = selectedNodes.filter((node) => node instanceof LatexNode) as LatexNode[];
-      if (textNodes.length === 0 && latexNodes.length === 0) return;
-      for (const node of textNodes) {
-        node.increaseFontSize(TextNodeSmartTools.getAnchorRateForTextNode(project!, node));
-      }
-      for (const node of latexNodes) {
-        node.increaseFontSize();
-      }
-      project!.historyManager.recordStep();
-    },
+    when: whenCanAdjustFontSize,
+    toolbarWhen: whenHasFontSizeNodes,
+    onPress: (project) => project?.layoutManager.adjustSelectedFontSize(true, true),
   },
 
   /*------- 节点相关 -------*/

@@ -439,9 +439,6 @@ importers:
       driver.js:
         specifier: ^1.4.0
         version: 1.6.0
-      elkjs:
-        specifier: 0.11.0
-        version: 0.11.0
       events:
         specifier: ^3.3.0
         version: 3.3.0
@@ -5566,10 +5563,6 @@ packages:
   electron-to-chromium@1.5.349:
     resolution:
       { integrity: sha512-QsWVGyRuY07Aqb234QytTfwd5d9AJlfNIQ5wIOl1L+PZDzI9d9+Fn0FRale/QYlFxt/bUnB0/nLd1jFPGxGK1A== }
-
-  elkjs@0.11.0:
-    resolution:
-      { integrity: sha512-u4J8h9mwEDaYMqo0RYJpqNMFDoMK7f+pu4GjcV+N8jIC7TRdORgzkfSjTJemhqONFfH6fBI3wpysgWbhgVWIXw== }
 
   emoji-regex@10.6.0:
     resolution:
@@ -13252,8 +13245,6 @@ snapshots:
   ejs@5.0.1: {}
 
   electron-to-chromium@1.5.349: {}
-
-  elkjs@0.11.0: {}
 
   emoji-regex@10.6.0: {}
 

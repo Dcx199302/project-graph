@@ -261,7 +261,7 @@ const definitions: BuiltInToolDefinition[] = [
   defineTool({
     name: "layout_nodes",
     description:
-      "使用画布「布局」菜单的算法整理指定节点和分组。grid_horizontal：横向方阵；grid_vertical：纵向方阵；mind_map：按已有连线生成树图；rectangle：矩形布局；increase_spacing / decrease_spacing：增大或缩小现有间距。请先完成节点和连线，再选择布局。",
+      "整理画布上的指定节点和分组。grid_horizontal：横向方阵；grid_vertical：纵向方阵；mind_map：按已有连线生成树图；rectangle：矩形布局；increase_spacing / decrease_spacing：增大或缩小现有间距。请先完成节点和连线，再选择布局。",
     inputSchema: z.object({
       refs: z.array(nodeRefSchema).min(2).describe("至少两个需要布局且互不重复的节点项目级引用"),
       mode: nodeLayoutModeSchema,

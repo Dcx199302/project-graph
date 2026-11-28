@@ -4,6 +4,7 @@ import { URI } from "vscode-uri";
 import { exists } from "@tauri-apps/plugin-fs";
 import { toast } from "sonner";
 import { Project } from "@/core/Project";
+import { Camera } from "@/core/stage/Camera";
 
 interface DeepLinkParams {
   path: string;
@@ -188,8 +189,8 @@ function applyCameraParams(project: Project, params: DeepLinkParams) {
   }
 
   if (params.zoom !== undefined) {
-    project.camera.currentScale = params.zoom;
-    project.camera.targetScale = params.zoom;
+    const zoom = Camera.limitZoom(params.zoom, project.camera.currentScale);
+    project.camera.currentScale = project.camera.targetScale = zoom;
   } else if (params.location && params.zoom === undefined) {
     project.camera.currentScale = 1;
     project.camera.targetScale = 1;

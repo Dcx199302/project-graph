@@ -115,6 +115,21 @@ describe("fit view", () => {
 });
 
 describe("camera after direct gestures", () => {
+  it("stops sustained keyboard zoom out at 1% and allows zoom in past 300%", () => {
+    const renderer = { transformWorld2View: () => Vector.getZero() };
+    const camera = new Camera({ renderer } as unknown as Project);
+    camera.currentScale = camera.targetScale = 2.99;
+    camera.isStartZoomIn = true;
+    camera.tick();
+    expect(camera.targetScale).toBeGreaterThan(3);
+
+    camera.currentScale = camera.targetScale = 0.0101;
+    camera.isStartZoomIn = false;
+    camera.isStartZoomOut = true;
+    camera.tick();
+    expect(camera.targetScale).toBe(0.01);
+  });
+
   it("fits the project even when the canvas mounts after the first ten frames", () => {
     const renderer = { w: 0, h: 0, transformWorld2View: () => Vector.getZero() };
     const center = new Vector(4000, -3000);

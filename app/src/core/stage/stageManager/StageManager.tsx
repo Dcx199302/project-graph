@@ -56,7 +56,7 @@ export type ChildCameraData = {
  */
 @service("stageManager")
 export class StageManager {
-  private selectAllScope: { nodeIds: Set<string>; global: boolean } | null = null;
+  private selectAllScope: { objects: Set<StageObject>; kind: "downstream" | "connected" | "section" } | null = null;
 
   /**
    * 运行时缓存的根 Section 列表。
@@ -1204,25 +1204,52 @@ export class StageManager {
   selectAll(): "local" | "global" {
     const stage = this.project.stage;
     const scope = this.selectAllScope;
-    if (scope && stage.every((object) => object.isSelected === (scope.global || scope.nodeIds.has(object.uuid)))) {
-      scope.global = !scope.global;
+    if (scope && stage.every((object) => object.isSelected === scope.objects.has(object))) {
+      if (scope.kind !== "downstream") return "local";
+      this.selectAllScope = { objects: this.getConnectedNodes("both"), kind: "connected" };
     } else {
       this.selectAllScope = null;
-      if (!stage.every((object) => object.isSelected)) {
-        const nodeIds = this.getRelatedNodeIds();
-        if (nodeIds && nodeIds.size < stage.length) this.selectAllScope = { nodeIds, global: false };
+      if (stage.every((object) => object.isSelected)) return "global";
+      const sections = this.getSections().filter((section) => section.isSelected);
+      if (sections.length > 0) {
+        const objects = this.getSectionContents(sections);
+        if (objects.size === 0) return "local";
+        this.selectAllScope = { objects, kind: "section" };
+      } else {
+        const objects = this.getConnectedNodes("outgoing");
+        if (objects.size > 0) this.selectAllScope = { objects, kind: "downstream" };
+        else if (stage.some((object) => object.isSelected)) return "local";
       }
     }
 
-    const local = this.selectAllScope?.global === false ? this.selectAllScope.nodeIds : undefined;
-    for (const object of stage) object.isSelected = !local || local.has(object.uuid);
+    const local = this.selectAllScope?.objects;
+    for (const object of stage) object.isSelected = !local || local.has(object);
     return local ? "local" : "global";
   }
 
-  private getRelatedNodeIds(): Set<string> | undefined {
+  private getSectionContents(sections: Section[]): Set<StageObject> {
+    const children = sections.flatMap((section) => section.children);
+    const contents = new Set<StageObject>(
+      this.project.sectionMethods.getAllEntitiesInSelectedSectionsOrEntities(children),
+    );
+    for (const relation of this.getAssociations()) {
+      if (
+        relation instanceof ConnectableAssociation &&
+        relation.isPhysical &&
+        relation.associationList.length > 0 &&
+        relation.associationList.every((endpoint) => contents.has(endpoint))
+      ) {
+        contents.add(relation);
+      }
+    }
+    return contents;
+  }
+
+  private getConnectedNodes(direction: "outgoing" | "both"): Set<StageObject> {
     const nodes = this.getConnectableEntity().filter((node) => !node.isHiddenBySectionCollapse);
     const queue = nodes.filter((node) => node.isSelected);
-    if (queue.length === 0) return;
+    const selected = new Set<StageObject>(queue);
+    if (queue.length === 0) return selected;
 
     const visibleNodes = new Set(nodes);
     const relationsByNode = new Map<ConnectableEntity, ConnectableAssociation[]>();
@@ -1230,30 +1257,27 @@ export class StageManager {
       if (!(relation instanceof ConnectableAssociation) || !relation.isPhysical) continue;
       const endpoints = relation.associationList;
       if (endpoints.length < 2 || !endpoints.every((node) => visibleNodes.has(node))) continue;
-      for (const node of endpoints) {
+      for (const node of direction === "outgoing" && relation instanceof Edge ? [relation.source] : endpoints) {
         const relations = relationsByNode.get(node);
         if (relations) relations.push(relation);
         else relationsByNode.set(node, [relation]);
       }
     }
 
-    const nodeIds = new Set(queue.map((node) => node.uuid));
     const visitedRelations = new Set<ConnectableAssociation>();
-    let hasConnectedNodes = false;
     for (let index = 0; index < queue.length; index++) {
       const node = queue[index];
       for (const relation of relationsByNode.get(node) ?? []) {
         if (visitedRelations.has(relation)) continue;
         visitedRelations.add(relation);
         for (const other of relation.associationList) {
-          if (other !== node) hasConnectedNodes = true;
-          if (nodeIds.has(other.uuid)) continue;
-          nodeIds.add(other.uuid);
+          if (selected.has(other)) continue;
+          selected.add(other);
           queue.push(other);
         }
       }
     }
-    return hasConnectedNodes ? nodeIds : undefined;
+    return selected;
   }
 
   clearSelectAll() {

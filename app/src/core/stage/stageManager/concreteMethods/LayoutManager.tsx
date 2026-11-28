@@ -29,6 +29,7 @@ function getMovableLayoutItems<T extends Entity>(entities: T[], scope = getLayou
 @service("layoutManager")
 export class LayoutManager {
   private graphLayoutRun = 0;
+  private lastToggledArrangement?: { selection: Map<Entity, number>; axis: "horizontal" | "vertical" };
 
   constructor(private readonly project: Project) {}
 
@@ -150,7 +151,38 @@ export class LayoutManager {
   }
 
   arrangeSelectedLine(axis: "horizontal" | "vertical") {
-    const nodes = this.getSelectedLayoutNodes();
+    this.arrangeLine(this.getSelectedLayoutNodes(), axis);
+  }
+
+  toggleSelectedLineArrangement() {
+    const selected = this.project.stageManager
+      .getSelectedEntities()
+      .filter((node) => node instanceof ConnectableEntity);
+    if (selected.length < 2) return;
+
+    const parent = selected[0].parentSection ?? null;
+    if (selected.some((node) => (node.parentSection ?? null) !== parent)) return;
+    const nodes = getMovableLayoutItems(selected, parent);
+    if (nodes.length !== selected.length) return;
+
+    const selection = new Map<Entity, number>(nodes.map((node) => [node, node.selectionOrder]));
+    const hasAssociation = this.project.stageManager
+      .getAssociations()
+      .some((association) =>
+        association.associationList.some((object) => object instanceof Entity && selection.has(object)),
+      );
+    if (hasAssociation) return;
+
+    const last = this.lastToggledArrangement;
+    const sameSelection =
+      last?.selection.size === selection.size &&
+      nodes.every((node) => last.selection.get(node) === node.selectionOrder);
+    const axis = sameSelection && last?.axis === "horizontal" ? "vertical" : "horizontal";
+    this.arrangeLine(nodes, axis, 72);
+    this.lastToggledArrangement = { selection, axis };
+  }
+
+  private arrangeLine(nodes: Entity[], axis: "horizontal" | "vertical", gap = 20) {
     if (nodes.length < 2) return;
     const anchor = nodes.reduce((first, node) => (node.selectionOrder < first.selectionOrder ? node : first));
     const along = axis === "horizontal" ? "x" : "y";
@@ -159,7 +191,6 @@ export class LayoutManager {
     items.sort((a, b) => a.rect.center[along] - b.rect.center[along] || a.node.selectionOrder - b.node.selectionOrder);
     const anchorIndex = items.findIndex(({ node }) => node === anchor);
     const anchorRect = items[anchorIndex].rect;
-    const gap = 20;
     const moves: { node: Entity; location: Vector }[] = [];
     for (const step of [-1, 1]) {
       let edge = anchorRect.location[along] + (step > 0 ? anchorRect.size[along] : 0);

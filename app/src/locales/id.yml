@@ -2155,7 +2155,7 @@ keyBinds:
       Setelah ditekan, hentikan melayang kamera, dan atur kecepatan ke 0
   selectAll:
     title: Pilih Semua
-    description: Pilih node yang terhubung dengan pilihan saat ini. Tekan lagi untuk beralih antara kelompok tersebut dan seluruh kanvas. Jika tidak ada kelompok terhubung, pilih seluruh kanvas.
+    description: Jika ada node terpilih, penekanan pertama memilih node hilir dan penekanan kedua mengikuti koneksi ke kedua arah untuk memilih semua node terkait. Jika ada grup terpilih, pilih isinya, termasuk grup bertingkat. Jika tidak ada pilihan, langsung pilih seluruh kanvas.
     globalSelected: Seluruh kanvas telah dipilih
   generateTreeBySelectedTextNodeTextWithAI:
     title: "AI: Buat Struktur Pohon"
@@ -2470,6 +2470,9 @@ keyBinds:
     title: Susun Vertikal
   arrangeSelectedHorizontal:
     title: Susun Horizontal
+  toggleSelectedLineArrangement:
+    title: Ganti Susunan Horizontal dan Vertikal
+    description: Susun node dan grup terpilih yang memiliki induk sama dan tidak terhubung secara horizontal pada penekanan pertama, lalu bergantian dengan susunan vertikal.
   increaseSelectedNodeSpacing:
     title: Perbesar Jarak Antarnode
     description: Geser node terpilih menjauh dari pusat pilihan.

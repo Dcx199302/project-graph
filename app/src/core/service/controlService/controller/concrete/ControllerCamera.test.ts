@@ -78,27 +78,36 @@ it("toggles between hand and selection modes on consecutive clicks", () => {
 });
 
 describe("trackpad camera handoff", () => {
-  it.each([1e-6, 1e6])("supports gesture zoom beyond the old limits at %s", (scale) => {
+  it.each([
+    [1e-6, 0.01],
+    [1e6, 1e6],
+  ])("applies gesture zoom at %s as %s and keeps its anchor", (scale, expected) => {
     const { camera, project } = setup();
     camera.applyGesture(new Vector(50, 50), new Vector(60, 60), scale);
-    expect(camera.currentScale).toBe(scale);
+    expect(camera.currentScale).toBe(expected);
     expect(project.renderer.transformWorld2View(Vector.getZero()).x).toBeCloseTo(60);
     const location = camera.location.clone();
     for (let i = 0; i < 10; i++) camera.tick();
-    expect(camera.currentScale).toBe(scale);
+    expect(camera.currentScale).toBe(expected);
     expect(camera.location).toEqual(location);
   });
-  it.each([0.000001, 1000000])("keeps wheel zoom proportional at %s", (scale) => {
+  it("stops wheel zoom out at 1%, reverses immediately, and allows zoom in past 300%", () => {
     const { camera, control } = setup();
     Object.assign(control, { lastZoomFeedbackTime: 0 });
-    camera.currentScale = camera.targetScale = scale;
+    camera.currentScale = camera.targetScale = 0.0101;
     const wheelControl = control as unknown as {
       applyWheelZoom: (delta: number, time: number, mode: number) => void;
     };
-    wheelControl.applyWheelZoom(-100, 0, 0);
-    expect(camera.targetScale / scale).toBeCloseTo(Math.exp(0.14));
     wheelControl.applyWheelZoom(100, 0, 0);
-    expect(camera.targetScale).toBeCloseTo(scale);
+    expect(camera.targetScale).toBe(0.01);
+    wheelControl.applyWheelZoom(100, 0, 0);
+    expect(camera.targetScale).toBe(0.01);
+    wheelControl.applyWheelZoom(-100, 0, 0);
+    expect(camera.targetScale).toBeCloseTo(0.01 * Math.exp(0.14), 8);
+
+    camera.currentScale = camera.targetScale = 2.9;
+    wheelControl.applyWheelZoom(-100, 0, 0);
+    expect(camera.targetScale).toBeCloseTo(2.9 * Math.exp(0.14));
   });
   it("direct panning clears velocity, queued movement and old zoom targets", () => {
     const { camera, control } = setup();

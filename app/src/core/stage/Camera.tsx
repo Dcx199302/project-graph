@@ -19,8 +19,15 @@ type CameraView = { location: Vector; scale: number };
  */
 @service("camera")
 export class Camera {
+  // 坐标转换需要除以缩放倍率，因此下限必须大于 0。
+  static readonly MIN_ZOOM = 0.01;
+
   static validScale(value: number, fallback: number): number {
     return Number.isFinite(value) && value > 0 ? value : fallback;
+  }
+
+  static limitZoom(value: number, fallback: number): number {
+    return Math.max(Camera.MIN_ZOOM, Number.isFinite(value) ? value : fallback);
   }
   /**
    * 空气摩擦力速度指数
@@ -192,12 +199,11 @@ export class Camera {
       }
     }
     if (this.isStartZoomIn) {
-      this.targetScale *= 1.05;
+      this.targetScale = Camera.limitZoom(this.targetScale * 1.05, this.currentScale);
     }
     if (this.isStartZoomOut) {
-      this.targetScale *= 0.95;
+      this.targetScale = Camera.limitZoom(this.targetScale * 0.95, this.currentScale);
     }
-    this.targetScale = Camera.validScale(this.targetScale, this.currentScale);
     this.tickNumber++;
   }
   /**
@@ -213,12 +219,12 @@ export class Camera {
   }
 
   zoomInByKeyboardPress() {
-    this.targetScale *= 1 + Settings.cameraKeyboardScaleRate;
+    this.targetScale = Camera.limitZoom(this.targetScale * (1 + Settings.cameraKeyboardScaleRate), this.currentScale);
     this.addScaleFollowMouseLocationTime(5);
   }
 
   zoomOutByKeyboardPress() {
-    this.targetScale *= 1 - Settings.cameraKeyboardScaleRate;
+    this.targetScale = Camera.limitZoom(this.targetScale * (1 - Settings.cameraKeyboardScaleRate), this.currentScale);
     this.addScaleFollowMouseLocationTime(5);
   }
 
@@ -267,7 +273,7 @@ export class Camera {
     if (!Number.isFinite(scaleFactor) || scaleFactor <= 0) return;
     const anchor = this.project.renderer.transformView2World(previous);
     this.stopImmediately();
-    this.currentScale = Camera.validScale(this.currentScale * scaleFactor, this.currentScale);
+    this.currentScale = Camera.limitZoom(this.currentScale * scaleFactor, this.currentScale);
     this.targetScale = this.currentScale;
     const center = new Vector(this.project.renderer.w / 2, this.project.renderer.h / 2);
     this.location = anchor.subtract(current.subtract(center).subtract(this.shakeLocation).divide(this.currentScale));
@@ -347,10 +353,13 @@ export class Camera {
     const size = this.project.stageManager.getSize();
     return {
       location: this.project.stageManager.getCenter(),
-      scale: Math.min(
-        Settings.cameraResetViewPaddingRate,
-        Math.max(1, w - 2 * margin.x) / size.x,
-        Math.max(1, h - 2 * margin.y) / size.y,
+      scale: Camera.limitZoom(
+        Math.min(
+          Settings.cameraResetViewPaddingRate,
+          Math.max(1, w - 2 * margin.x) / size.x,
+          Math.max(1, h - 2 * margin.y) / size.y,
+        ),
+        this.currentScale,
       ),
     };
   }
@@ -358,7 +367,10 @@ export class Camera {
   private getRectangleView(rectangle: Rectangle): CameraView {
     const { w, h } = this.project.renderer;
     const size = rectangle.size.multiply(Settings.cameraResetViewPaddingRate);
-    return { location: rectangle.center, scale: Math.min(Settings.cameraResetMaxScale, w / size.x, h / size.y) };
+    return {
+      location: rectangle.center,
+      scale: Camera.limitZoom(Math.min(Settings.cameraResetMaxScale, w / size.x, h / size.y), this.currentScale),
+    };
   }
 
   private setView(view: CameraView) {

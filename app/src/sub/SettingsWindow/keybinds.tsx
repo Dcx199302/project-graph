@@ -854,6 +854,7 @@ export const shortcutKeysGroups: ShortcutKeysGroup[] = [
       "alignTopToBottomNoSpace",
       "arrangeSelectedVertical",
       "arrangeSelectedHorizontal",
+      "toggleSelectedLineArrangement",
       "layoutToSquare",
       "layoutToSquareVertical",
       "rectangleLayout",

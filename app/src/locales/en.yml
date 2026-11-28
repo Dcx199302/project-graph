@@ -1783,7 +1783,7 @@ keyBinds:
       When pressed, the camera the camera stops drifting and sets the speed to 0
   selectAll:
     title: Select All
-    description: Select the connected nodes from the current selection. Press again to switch between the connected nodes and the entire canvas. With no connected group, select the entire canvas.
+    description: With nodes selected, the first press selects downstream nodes and the second follows connections in both directions to select all related nodes. With a group selected, select its contents, including nested groups. With nothing selected, select the entire canvas directly.
     globalSelected: Entire canvas selected
   selectAtCrosshair:
     title: Select node at crosshair
@@ -2009,6 +2009,9 @@ keyBinds:
     title: Arrange Vertically
   arrangeSelectedHorizontal:
     title: Arrange Horizontally
+  toggleSelectedLineArrangement:
+    title: Toggle Horizontal and Vertical Arrangement
+    description: Arrange selected nodes and groups with the same parent and no connections horizontally on the first press, then alternate with vertical arrangement.
   increaseSelectedNodeSpacing:
     title: Increase Node Spacing
     description: Spread selected nodes outward from the center of the selection.

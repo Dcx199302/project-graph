@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 
+import { Project, ProjectState } from "@/core/Project";
 import { createTabGroup, splitTabGroup } from "@/core/TabGroup";
-import { store, tabGroupRootAtom } from "@/state";
+import { store, tabGroupRootAtom, tabsAtom } from "@/state";
 import { Provider } from "jotai";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-vi.mock("@/core/Project", () => ({ Project: class {}, ProjectState: {} }));
+vi.mock("@/core/Project", () => ({ Project: class {}, ProjectState: { Saved: "saved" } }));
 vi.mock("@/core/Tab", () => ({ isResourceTab: () => false }));
 vi.mock("@/core/TabWorkspace", () => ({ TabWorkspace: {} }));
 vi.mock("@/utils/platform", () => ({ isMac: false }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
 vi.mock("@/ProjectTabs", () => ({
   ProjectTabs: () => (
     <div data-pg-tab-bar>
@@ -28,11 +30,13 @@ let groupRects: Record<string, DOMRect>;
 let updateLayout: () => void;
 const disconnect = vi.fn();
 const onTitleBarMouseDown = vi.fn();
+const translate = (key: string) => key;
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   space = new DOMRect(120, 8, 760, 40);
   groupRects = { main: new DOMRect(0, 0, 1000, 56) };
+  store.set(tabsAtom, []);
   store.set(tabGroupRootAtom, createTabGroup([], "main"));
   vi.stubGlobal(
     "ResizeObserver",
@@ -124,4 +128,41 @@ it("drags the window from titlebar space while leaving tab mouse events alone", 
   expect(onTitleBarMouseDown).not.toHaveBeenCalled();
   await React.act(async () => bar.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
   expect(onTitleBarMouseDown).toHaveBeenCalledOnce();
+});
+
+it("shows zoom on an empty canvas and resets it immediately when clicked", async () => {
+  const camera = {
+    currentScale: 0.45,
+    resetScale: vi.fn(() => {
+      camera.currentScale = 1;
+    }),
+    toggleFitView: vi.fn(),
+  };
+  const resetCountdownTimer = vi.fn();
+  const loop = vi.fn();
+  const project = Object.assign(Object.create(Project.prototype), {
+    id: "project",
+    layout: "docked",
+    projectState: ProjectState.Saved,
+    getComponent: () => () => null,
+    renderer: { getCoverWorldRectangle: vi.fn() },
+    stageManager: { getEntities: () => [], getAssociations: () => [], getSelectedStageObjects: () => [] },
+    controller: { resetCountdownTimer },
+    camera,
+    loop,
+  });
+  store.set(tabsAtom, [project]);
+  store.set(tabGroupRootAtom, createTabGroup([project.id], "main"));
+  await render();
+
+  const zoom = container.querySelector<HTMLButtonElement>('button[title="keyBinds:resetCameraScale.title"]')!;
+  expect(container.textContent).toContain("emptyCanvas");
+  expect(zoom.textContent).toBe("45%");
+  await React.act(async () => zoom.click());
+
+  expect(zoom.textContent).toBe("100%");
+  expect(camera.resetScale).toHaveBeenCalledOnce();
+  expect(camera.toggleFitView).not.toHaveBeenCalled();
+  expect(resetCountdownTimer).toHaveBeenCalledOnce();
+  expect(loop).toHaveBeenCalledOnce();
 });

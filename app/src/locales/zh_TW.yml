@@ -1856,7 +1856,7 @@ keyBinds:
       按下後，停止攝像機飄移，並將速度置為0
   selectAll:
     title: 全選
-    description: 從選中的節點沿連線選擇關聯節點，重複按鍵在局部和整頁之間切換。沒有可擴展的關聯時全選整頁。
+    description: 選中節點時，第一次選中下游節點，第二次沿連線雙向選中所有關聯節點。選中分組時，全選組內內容（含嵌套分組）。未選中內容時，直接全選整張畫布。
     globalSelected: 已全選整頁
   selectAtCrosshair:
     title: 選擇十字準心對準的節點
@@ -2216,6 +2216,9 @@ keyBinds:
     title: 垂直排列
   arrangeSelectedHorizontal:
     title: 水平排列
+  toggleSelectedLineArrangement:
+    title: 切換水平和垂直排列
+    description: 對同一層級且未參與連線或其他關係的選中節點和分組，第一次水平排列，再按切換為垂直排列。
   increaseSelectedNodeSpacing:
     title: 增大節點間距
     description: 以選區中心為基準拉開選中節點。

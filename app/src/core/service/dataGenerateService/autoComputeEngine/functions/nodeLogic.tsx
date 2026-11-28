@@ -3,6 +3,7 @@ import { Project } from "@/core/Project";
 import { MouseLocation } from "@/core/service/controlService/MouseLocation";
 import { PenStrokeDeletedEffect } from "@/core/service/feedbackService/effectEngine/concrete/PenStrokeDeletedEffect";
 import { SoundService } from "@/core/service/feedbackService/SoundService";
+import { Camera } from "@/core/stage/Camera";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { CollisionBox } from "@/core/stage/stageObject/collisionBox/collisionBox";
 import { ConnectPoint } from "@/core/stage/stageObject/entity/ConnectPoint";
@@ -252,7 +253,7 @@ export namespace NodeLogic {
     const fatherNode = fatherNodes[0];
     if (fatherNode instanceof TextNode) {
       const scale = parseFloat(fatherNode.text);
-      project.camera.targetScale = scale;
+      project.camera.targetScale = Camera.limitZoom(scale, project.camera.currentScale);
     }
     return [];
   }

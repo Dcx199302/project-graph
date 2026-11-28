@@ -421,7 +421,9 @@ export class ControllerCameraClass extends ControllerClass {
     const camera = this.project.camera;
     const scale = camera.targetScale;
     const nextScale = scale * Math.exp(-Math.sign(deltaY) * 0.14 * wheelSteps);
-    camera.targetScale = Camera.validScale(nextScale, scale);
+    const targetScale = Camera.limitZoom(nextScale, scale);
+    if (targetScale === scale) return;
+    camera.targetScale = targetScale;
     this.addZoomFeedback(deltaY > 0 ? "shrink" : "expand", timeStamp);
   }
 

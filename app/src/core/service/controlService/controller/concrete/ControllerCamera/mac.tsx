@@ -1,5 +1,6 @@
 import { Project } from "@/core/Project";
 import { Settings } from "@/core/service/Settings";
+import { Camera } from "@/core/stage/Camera";
 import { isMac } from "@/utils/platform";
 import { Vector } from "@graphif/data-structures";
 
@@ -118,8 +119,7 @@ export class ControllerCameraMac {
     const newX = x + diffX;
     // 求解新的 camera scale
     const newCameraScale = Math.pow(power, newX);
-    // this.project.camera.currentScale = newCameraScale;
-    this.project.camera.targetScale = newCameraScale;
+    this.project.camera.targetScale = Camera.limitZoom(newCameraScale, currnetCameraScale);
     // this.project.camera.setAllowScaleFollowMouseLocationTicks(2 * 60);
   }
 

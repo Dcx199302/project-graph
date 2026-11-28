@@ -101,13 +101,15 @@ function lineEdge(associationList: ConnectableEntity[], uuid = crypto.randomUUID
 }
 
 describe("StageManager.selectAll", () => {
-  it("toggles between the union of the selected nodes' connected groups and the entire canvas", () => {
+  it("selects downstream nodes first, then the connected components without unrelated nodes", () => {
     const a = textNode("a");
     const b = textNode("b");
     const c = textNode("c");
     const d = textNode("d");
     const e = textNode("e");
     const f = textNode("f");
+    const upstream = textNode("upstream");
+    const sibling = textNode("sibling");
     const isolated = textNode("isolated");
     const manager = createStageManager([
       a,
@@ -116,59 +118,115 @@ describe("StageManager.selectAll", () => {
       d,
       e,
       f,
+      upstream,
+      sibling,
       isolated,
+      lineEdge([upstream, b]),
       lineEdge([b, a]),
-      lineEdge([b, c]),
+      lineEdge([b, sibling]),
+      lineEdge([a, c]),
+      lineEdge([c, d]),
       lineEdge([c, a]),
-      new MultiTargetUndirectedEdge({} as Project, { associationList: [d, e, f] }),
+      new MultiTargetUndirectedEdge({} as Project, { associationList: [f, e] }),
     ]);
-    a.isSelected = d.isSelected = true;
-    const related = [a, b, c, d, e, f];
+    a.isSelected = e.isSelected = true;
 
     expect(manager.selectAll()).toBe("local");
-    expect(manager.getSelectedStageObjects()).toEqual(related);
-    expect(manager.selectAll()).toBe("global");
-    expect(manager.getStageObjects().every((object) => object.isSelected)).toBe(true);
+    expect(manager.getSelectedStageObjects()).toEqual([a, c, d, e, f]);
     expect(manager.selectAll()).toBe("local");
-    expect(manager.getSelectedStageObjects()).toEqual(related);
-    expect(manager.selectAll()).toBe("global");
+    expect(manager.getSelectedStageObjects()).toEqual([a, b, c, d, e, f, upstream, sibling]);
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([a, b, c, d, e, f, upstream, sibling]);
   });
 
-  it("clears the saved group when the selection is cleared", () => {
+  it("starts a new sequence when the selection changes or is cleared", () => {
     const a = textNode("a");
     const b = textNode("b");
     const c = textNode("c");
     const d = textNode("d");
     const manager = createStageManager([a, b, c, d, lineEdge([a, b]), lineEdge([c, d])]);
     a.isSelected = true;
-    manager.selectAll();
-
-    manager.clearSelectAll();
-    a.isSelected = b.isSelected = true;
     expect(manager.selectAll()).toBe("local");
-    expect(manager.selectAll()).toBe("global");
+
+    a.isSelected = b.isSelected = false;
+    c.isSelected = true;
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([c, d]);
 
     manager.clearSelectAll();
     expect(manager.getSelectedStageObjects()).toEqual([]);
     expect(manager.selectAll()).toBe("global");
+    expect(manager.getStageObjects().every((object) => object.isSelected)).toBe(true);
     expect(manager.selectAll()).toBe("global");
-
-    manager.clearSelectAll();
-    d.isSelected = true;
-    expect(manager.selectAll()).toBe("local");
-    expect(manager.getSelectedStageObjects()).toEqual([c, d]);
   });
 
-  it("selects the entire canvas when a selected node has no other connected nodes", () => {
+  it("keeps the starting node selected on the first press when there are no downstream nodes", () => {
     const isolated = textNode("isolated");
     const unrelated = textNode("unrelated");
     const loop = lineEdge([isolated, isolated]);
     const manager = createStageManager([isolated, unrelated, loop]);
     isolated.isSelected = true;
 
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([isolated]);
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([isolated]);
+  });
+
+  it("keeps an edge-only selection local and selects the entire canvas after clearing it", () => {
+    const source = textNode("source");
+    const target = textNode("target");
+    const edge = lineEdge([source, target]);
+    const manager = createStageManager([source, target, edge]);
+    edge.isSelected = true;
+
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([edge]);
+    manager.clearSelectAll();
     expect(manager.selectAll()).toBe("global");
-    expect(manager.getSelectedStageObjects()).toEqual([isolated, unrelated, loop]);
-    expect(manager.selectAll()).toBe("global");
+    expect(manager.getSelectedStageObjects()).toEqual([source, target, edge]);
+  });
+
+  it("selects nested section contents and internal connections without selecting the outer section", () => {
+    const project = createProjectWithHistory();
+    const directChild = textNode("direct");
+    const nestedChild = textNode("nested");
+    const outside = textNode("outside");
+    const nested = section("nested-section", [nestedChild]);
+    const outer = section("outer", [directChild, nested]);
+    const internal = lineEdge([directChild, nestedChild]);
+    const internalUndirected = new MultiTargetUndirectedEdge(project, { associationList: [directChild, nestedChild] });
+    const external = lineEdge([nestedChild, outside]);
+    const spanning = new MultiTargetUndirectedEdge(project, { associationList: [directChild, nestedChild, outside] });
+    project.stage.push(
+      outer,
+      directChild,
+      nested,
+      nestedChild,
+      outside,
+      internal,
+      internalUndirected,
+      external,
+      spanning,
+    );
+    outer.isSelected = true;
+    nested.isCollapsed = nestedChild.isHiddenBySectionCollapse = true;
+    const manager = project.stageManager;
+
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([directChild, nested, nestedChild, internal, internalUndirected]);
+    expect(manager.selectAll()).toBe("local");
+    expect(manager.getSelectedStageObjects()).toEqual([directChild, nested, nestedChild, internal, internalUndirected]);
+  });
+
+  it("keeps an empty section selected without expanding to the entire canvas", () => {
+    const project = createProjectWithHistory();
+    const empty = section("empty", []);
+    project.stage.push(empty, textNode("outside"));
+    empty.isSelected = true;
+
+    expect(project.stageManager.selectAll()).toBe("local");
+    expect(project.stageManager.getSelectedStageObjects()).toEqual([empty]);
   });
 });
 
@@ -219,6 +277,82 @@ it.each(["horizontal", "vertical"] as const)("arranges nodes on the %s axis arou
   expect(untouched.rectangle.location).toEqual(new Vector(40, 40));
   layout.arrangeSelectedLine(axis);
   expect(project.historyManager.recordStep).toHaveBeenCalledOnce();
+});
+
+it("toggles line arrangement from horizontal to vertical and restarts after reselecting nodes", () => {
+  const project = createProjectWithHistory();
+  project.historyManager = { recordStep: vi.fn() } as unknown as Project["historyManager"];
+  const anchor = Object.assign(textNode("anchor", 100, 100), { project, isSelected: true });
+  const node = Object.assign(textNode("other", 400, 300), { project, isSelected: true });
+  project.stage.push(node, anchor);
+  const layout = new LayoutManager(project);
+
+  layout.toggleSelectedLineArrangement();
+  expect(node.rectangle.location).toEqual(new Vector(272, 100));
+  layout.toggleSelectedLineArrangement();
+  expect(node.rectangle.location).toEqual(new Vector(100, 252));
+  layout.toggleSelectedLineArrangement();
+  expect(node.rectangle.location).toEqual(new Vector(272, 100));
+
+  project.stageManager.clearSelectAll();
+  anchor.isSelected = node.isSelected = true;
+  layout.toggleSelectedLineArrangement();
+  expect(node.rectangle.location).toEqual(new Vector(272, 100));
+  expect(anchor.rectangle.location).toEqual(new Vector(100, 100));
+  expect(project.historyManager.recordStep).toHaveBeenCalledTimes(3);
+});
+
+it.each(["edge", "undirected edge", "different parents"] as const)(
+  "skips the whole line arrangement selection with %s",
+  (blocker) => {
+    const project = createProjectWithHistory();
+    project.historyManager = { recordStep: vi.fn() } as unknown as Project["historyManager"];
+    const first = Object.assign(textNode("first", 100, 100), { project, isSelected: true });
+    const second = Object.assign(textNode("second", 400, 300), { project, isSelected: true });
+    const outside = textNode("outside");
+    project.stage.push(first, second, outside);
+    if (blocker === "edge") project.stage.push(lineEdge([outside, first]));
+    if (blocker === "undirected edge") {
+      project.stage.push(new MultiTargetUndirectedEdge(project, { associationList: [outside, second] }));
+    }
+    if (blocker === "different parents") {
+      first.parentSection = section("first-parent", [first]);
+      second.parentSection = section("second-parent", [second]);
+      project.stage.push(first.parentSection, second.parentSection);
+    }
+
+    new LayoutManager(project).toggleSelectedLineArrangement();
+
+    expect(first.rectangle.location).toEqual(new Vector(100, 100));
+    expect(second.rectangle.location).toEqual(new Vector(400, 300));
+    expect(project.historyManager.recordStep).not.toHaveBeenCalled();
+  },
+);
+
+it("arranges sibling groups together and carries their contents with them", () => {
+  const project = createProjectWithHistory();
+  project.historyManager = { recordStep: vi.fn() } as unknown as Project["historyManager"];
+  const firstChild = Object.assign(textNode("first-child", 100, 100), { project });
+  const secondChild = Object.assign(textNode("second-child", 400, 300), { project });
+  const first = new Section(project, { text: "First", children: [firstChild] });
+  const second = new Section(project, { text: "Second", children: [secondChild] });
+  const parent = new Section(project, { text: "Parent", children: [first, second] });
+  project.stage.push(parent, first, second, firstChild, secondChild);
+  project.stageManager.updateReferences();
+  first.isSelected = second.isSelected = true;
+  const offset = secondChild.rectangle.location.subtract(second.rectangle.location);
+  const layout = new LayoutManager(project);
+
+  layout.toggleSelectedLineArrangement();
+  expect(second.rectangle.center.y).toBe(first.rectangle.center.y);
+  expect(second.rectangle.left - first.rectangle.right).toBe(72);
+  layout.toggleSelectedLineArrangement();
+  expect(second.rectangle.center.x).toBe(first.rectangle.center.x);
+  expect(Math.max(second.rectangle.top - first.rectangle.bottom, first.rectangle.top - second.rectangle.bottom)).toBe(
+    72,
+  );
+  expect(secondChild.rectangle.location.subtract(second.rectangle.location)).toEqual(offset);
+  expect(project.historyManager.recordStep).toHaveBeenCalledTimes(2);
 });
 
 it.each([

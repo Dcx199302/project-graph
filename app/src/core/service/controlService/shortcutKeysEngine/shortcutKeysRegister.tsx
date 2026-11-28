@@ -2670,6 +2670,14 @@ export const allKeyBinds: KeyBindItem[] = [
     onPress: (project) => project?.layoutManager.arrangeSelectedLine("horizontal"),
   },
   {
+    id: "toggleSelectedLineArrangement",
+    defaultKey: "\\",
+    icon: ArrowLeftRight,
+    when: (project) => whenKeyboardOnlyOpen(project) && !Settings.viewerMode,
+    isRepeatable: false,
+    onPress: (project) => project?.layoutManager.toggleSelectedLineArrangement(),
+  },
+  {
     id: "increaseSelectedNodeSpacing",
     defaultKey: "",
     icon: DiamondPlus,

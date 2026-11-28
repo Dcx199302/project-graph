@@ -15,6 +15,8 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
   const { t } = useTranslation("projectStatus");
   const [text, setText] = useState("");
   const [viewHint, setViewHint] = useState("");
+  const [zoom, setZoom] = useState(() => Math.round(project.camera.currentScale * 100));
+  const resetZoomLabel = t("keyBinds:resetCameraScale.title");
 
   useEffect(() => {
     const update = () => {
@@ -27,13 +29,14 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
         return view.isCollideWith(rect) && Math.max(rect.width, rect.height) * project.camera.currentScale >= 1;
       });
       setViewHint(entities.length === 0 ? t("emptyCanvas") : hasVisibleNode ? "" : t("noVisibleNodes"));
+      setZoom(Math.round(project.camera.currentScale * 100));
       const state = {
         [ProjectState.Saved]: "saved",
         [ProjectState.Stashed]: "stashed",
         [ProjectState.Unsaved]: "unsaved",
       }[project.projectState];
       setText(
-        `${t("nodes", { count: manager.getEntities().length })} · ${t("edges", { count: manager.getAssociations().length })} · ${t("selected", { count: manager.getSelectedStageObjects().length })}  |  ${Math.round(project.camera.currentScale * 100)}%  |  ${t(state)}`,
+        `${t("nodes", { count: entities.length })} · ${t("edges", { count: manager.getAssociations().length })} · ${t("selected", { count: manager.getSelectedStageObjects().length })}  |  ${t(state)}`,
       );
     };
     update();
@@ -49,6 +52,22 @@ function ProjectStatus({ project, isClassroomMode }: { project: Project; isClass
       )}
     >
       <span className="truncate">{viewHint || text}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-6 w-14 shrink-0 px-2 text-xs tabular-nums"
+        aria-label={`${resetZoomLabel} (${zoom}%)`}
+        title={resetZoomLabel}
+        onClick={() => {
+          project.camera.resetScale();
+          setZoom(Math.round(project.camera.currentScale * 100));
+          project.controller.resetCountdownTimer();
+          project.loop();
+        }}
+      >
+        {zoom}%
+      </Button>
       <Button
         variant="ghost"
         size="sm"
